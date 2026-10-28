@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- XML belgeleri olmayan public üyeler için uyarıyı kapat -->
+    <NoWarn>$(NoWarn);CS1591;CA1848;CA2007;CA1031;CA1716;CA1711;CA1724</NoWarn>
+  </PropertyGroup>
+</Project>
