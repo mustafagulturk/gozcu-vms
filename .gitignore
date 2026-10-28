@@ -482,3 +482,10 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Gözcü VMS
+recordings/
+samples/videos/*
+!samples/videos/README.md
+TestResults/
+ccr-ca.crt

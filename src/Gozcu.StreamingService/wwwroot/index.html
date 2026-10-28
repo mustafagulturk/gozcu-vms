@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gözcü VMS · Canlı İzleme</title>
+  <style>
+    :root {
+      --bg: #0f1419; --panel: #182029; --text: #e6edf3; --muted: #8b98a5;
+      --online: #2ea043; --degraded: #d29922; --offline: #f85149; --connecting: #58a6ff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 16px 24px; border-bottom: 1px solid #263140; display: flex; align-items: baseline; gap: 12px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header span { color: var(--muted); font-size: 14px; }
+    main { padding: 24px; display: grid; gap: 24px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr)); }
+    .camera { background: var(--panel); border-radius: 8px; overflow: hidden; }
+    .camera video { width: 100%; aspect-ratio: 16 / 9; background: #000; display: block; }
+    .meta { padding: 12px 16px; display: grid; gap: 6px; font-size: 14px; }
+    .title { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 16px; }
+    .badge { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #0f1419; }
+    .badge.Online { background: var(--online); }
+    .badge.Degraded { background: var(--degraded); }
+    .badge.Offline { background: var(--offline); }
+    .badge.Connecting { background: var(--connecting); }
+    .muted { color: var(--muted); }
+    .error { color: var(--offline); word-break: break-word; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Gözcü VMS</h1>
+    <span>Canlı izleme · Aşama 1</span>
+  </header>
+  <main id="cameras"><p class="muted">Kameralar yükleniyor…</p></main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/hls.min.js"></script>
+  <script>
+    const players = new Map();
+    const stateLabels = { Online: "Çevrimiçi", Degraded: "Sorunlu", Offline: "Çevrimdışı", Connecting: "Bağlanıyor" };
+
+    function ensureCard(cam) {
+      let card = document.getElementById(`cam-${cam.cameraId}`);
+      if (card) return card;
+      card = document.createElement("section");
+      card.className = "camera";
+      card.id = `cam-${cam.cameraId}`;
+      card.innerHTML = `
+        <video muted autoplay playsinline controls></video>
+        <div class="meta">
+          <div class="title"><span class="name"></span><span class="badge"></span></div>
+          <div class="muted details"></div>
+          <div class="error"></div>
+        </div>`;
+      document.getElementById("cameras").appendChild(card);
+      return card;
+    }
+
+    function attachPlayer(card, cam) {
+      if (players.has(cam.cameraId) || !cam.hlsUrl) return;
+      const video = card.querySelector("video");
+      if (window.Hls && Hls.isSupported()) {
+        const hls = new Hls({ liveSyncDurationCount: 2 });
+        hls.loadSource(cam.hlsUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (data.fatal) { hls.destroy(); players.delete(cam.cameraId); }
+        });
+        players.set(cam.cameraId, hls);
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = cam.hlsUrl;
+        players.set(cam.cameraId, null);
+      }
+    }
+
+    function render(cam) {
+      const card = ensureCard(cam);
+      card.querySelector(".name").textContent = `${cam.name} (${cam.cameraId})`;
+      const badge = card.querySelector(".badge");
+      badge.className = `badge ${cam.state}`;
+      badge.textContent = stateLabels[cam.state] ?? cam.state;
+
+      const parts = [];
+      if (cam.stream) parts.push(`${cam.stream.codec.toUpperCase()} ${cam.stream.width}×${cam.stream.height}` + (cam.stream.framesPerSecond ? ` @ ${cam.stream.framesPerSecond} fps` : ""));
+      if (cam.ingestRate != null) parts.push(`alım oranı ${cam.ingestRate.toFixed(2)}×`);
+      parts.push(`yeniden bağlanma: ${cam.reconnectCount}`);
+      card.querySelector(".details").textContent = parts.join(" · ");
+      card.querySelector(".error").textContent = cam.state === "Online" ? "" : (cam.lastError ?? "");
+
+      if (cam.state === "Online" || cam.state === "Degraded") attachPlayer(card, cam);
+    }
+
+    async function refresh() {
+      try {
+        const response = await fetch("/api/cameras");
+        const cameras = await response.json();
+        if (cameras.length === 0) {
+          document.getElementById("cameras").innerHTML = '<p class="muted">Yapılandırılmış kamera yok.</p>';
+          return;
+        }
+        document.querySelector("#cameras > p")?.remove();
+        cameras.forEach(render);
+      } catch (e) {
+        console.warn("Kamera durumu alınamadı", e);
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

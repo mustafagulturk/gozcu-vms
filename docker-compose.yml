@@ -1,0 +1,112 @@
+# Gözcü VMS – tüm sistemi tek komutla başlatır:  docker compose up --build
+name: gozcu-vms
+
+x-cameras: &cameras
+  Cameras__0__Id: cam1
+  Cameras__0__Name: Kavşak Kamerası
+  Cameras__0__RtspUrl: rtsp://mediamtx:8554/cam1
+
+x-backend: &backend
+  ConnectionStrings__Gozcu: Host=postgres;Port=5432;Database=gozcu;Username=gozcu;Password=gozcu
+  RabbitMq__ConnectionString: amqp://gozcu:gozcu@rabbitmq:5672/
+
+services:
+  # Sahte IP kameralar: samples/videos/*.mp4 dosyalarını RTSP olarak yayınlar.
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.3-ffmpeg
+    restart: unless-stopped
+    volumes:
+      - ./deploy/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - ./deploy/mediamtx/fake-camera.sh:/fake-camera.sh:ro
+      - ./samples/videos:/videos:ro
+    ports:
+      - "8554:8554"   # RTSP
+      - "8888:8888"   # HLS
+      - "8889:8889"   # WebRTC
+      - "9997:9997"   # MediaMTX API
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gozcu
+      POSTGRES_USER: gozcu
+      POSTGRES_PASSWORD: gozcu
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gozcu -d gozcu"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: gozcu
+      RABBITMQ_DEFAULT_PASS: gozcu
+    ports:
+      - "5672:5672"
+      - "15672:15672"  # Yönetim arayüzü
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  streaming:
+    build:
+      context: .
+      dockerfile: deploy/service.Dockerfile
+      args:
+        SERVICE: Gozcu.StreamingService
+    image: gozcu/streaming-service:dev
+    restart: unless-stopped
+    environment:
+      <<: [*cameras, *backend]
+      RabbitMq__ClientName: gozcu-streaming
+      Streaming__PublicHlsBaseUrl: ${PUBLIC_HLS_BASE_URL:-http://localhost:8888/}
+    ports:
+      - "5080:8080"   # Canlı izleme sayfası ve kamera durumu API'si
+    depends_on:
+      mediamtx:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  recording:
+    build:
+      context: .
+      dockerfile: deploy/service.Dockerfile
+      args:
+        SERVICE: Gozcu.RecordingService
+    image: gozcu/recording-service:dev
+    restart: unless-stopped
+    stop_grace_period: 20s   # ffmpeg'in son parçayı düzgün kapatması için
+    environment:
+      <<: [*cameras, *backend]
+      RabbitMq__ClientName: gozcu-recording
+      Recording__RootPath: /recordings
+      Recording__SegmentSeconds: ${SEGMENT_SECONDS:-60}
+      Recording__Retention__MaxTotalBytes: ${RETENTION_MAX_BYTES:-10737418240}
+      Recording__Retention__MinFreeBytes: ${RETENTION_MIN_FREE_BYTES:-1073741824}
+    volumes:
+      - recordings:/recordings
+    ports:
+      - "5081:8080"   # Kayıt durumu ve parça arama API'si
+    depends_on:
+      mediamtx:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  recordings:
