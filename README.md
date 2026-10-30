@@ -33,7 +33,7 @@ run without real hardware. `docker compose up --build` starts everything.
 ```mermaid
 flowchart LR
     subgraph Kameralar["Sahte IP kameralar"]
-        V[(samples/videos/*.mp4<br/>veya test desenleri)] --> M[MediaMTX · cam1…cam4<br/>RTSP :8554 · HLS :8888]
+        V[(samples/videos/*.mp4<br/>örnek videolar veya test desenleri)] --> M[MediaMTX · cam1…cam4<br/>RTSP :8554 · HLS :8888]
     end
 
     M -- "RTSP (TCP)" --> S[Akış servisi<br/>bağlantı · yeniden bağlanma · sağlık]
@@ -99,9 +99,10 @@ Gereksinimler: Docker (Compose v2). Geliştirme için ayrıca .NET 8 SDK ve ffmp
 git clone https://github.com/mustafagulturk/gozcu-vms.git
 cd gozcu-vms
 
-# (İsteğe bağlı) Pexels'tan indirdiğin bir trafik videosunu cam1 olarak hazırla.
-# Bu adımı atlarsan her kamera (cam1…cam4) kendi test desenini yayınlar.
-./scripts/prepare-video.sh ~/Downloads/trafik.mp4 cam1
+# (İsteğe bağlı ama önerilir) Gerçek güvenlik kamerası görüntüleri: 4 örnek videoyu indirip hazırlar
+# (Intel IoT DevKit, CC BY 4.0). Bu adımı atlarsan her kamera kendi test desenini yayınlar.
+./scripts/download-sample-videos.sh
+# Kendi videonu kullanmak istersen: ./scripts/prepare-video.sh ~/Downloads/trafik.mp4 cam1
 
 docker compose up --build
 ```

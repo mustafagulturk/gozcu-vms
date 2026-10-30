@@ -3,16 +3,16 @@ name: gozcu-vms
 
 x-cameras: &cameras
   Cameras__0__Id: cam1
-  Cameras__0__Name: Kavşak Kamerası
+  Cameras__0__Name: Otopark Girişi
   Cameras__0__RtspUrl: rtsp://mediamtx:8554/cam1
   Cameras__1__Id: cam2
-  Cameras__1__Name: Otopark Girişi
+  Cameras__1__Name: Otopark Alanı
   Cameras__1__RtspUrl: rtsp://mediamtx:8554/cam2
   Cameras__2__Id: cam3
-  Cameras__2__Name: Yaya Geçidi
+  Cameras__2__Name: Koridor
   Cameras__2__RtspUrl: rtsp://mediamtx:8554/cam3
   Cameras__3__Id: cam4
-  Cameras__3__Name: Bina Girişi
+  Cameras__3__Name: Lobi
   Cameras__3__RtspUrl: rtsp://mediamtx:8554/cam4
 
 x-backend: &backend
