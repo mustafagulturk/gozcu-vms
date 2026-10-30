@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- FFmpeg süreç yönetimi, argüman üreticileri ve çıktı ayrıştırıcıları. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Gozcu.UnitTests" />
+  </ItemGroup>
+</Project>

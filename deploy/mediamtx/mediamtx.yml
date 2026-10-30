@@ -1,0 +1,36 @@
+# Gözcü VMS – sahte IP kamera sunucusu.
+# Her path bir kamerayı temsil eder: samples/videos/<path>.mp4 varsa döngüde yayınlanır,
+# yoksa test deseni üretilir. Böylece sistem ve CI gerçek kamera olmadan çalışır.
+
+logLevel: info
+
+api: true
+apiAddress: :9997
+
+rtsp: true
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+rtmp: false
+srt: false
+
+# Tarayıcıda canlı izleme (http://localhost:8888/cam1/ veya web paneldeki hls.js oynatıcı).
+hls: true
+hlsAddress: :8888
+hlsAllowOrigins: ["*"]
+hlsVariant: mpegts
+hlsSegmentCount: 6
+hlsSegmentDuration: 1s
+
+# İleride düşük gecikmeli izleme için.
+webrtc: true
+webrtcAddress: :8889
+
+paths:
+  cam1:
+    runOnInit: sh /fake-camera.sh
+    runOnInitRestart: yes
+  # 2. aşamada çoklu kamera:
+  # cam2:
+  #   runOnInit: sh /fake-camera.sh
+  #   runOnInitRestart: yes
