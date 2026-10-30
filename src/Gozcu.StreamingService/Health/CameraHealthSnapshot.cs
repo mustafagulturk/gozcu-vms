@@ -14,6 +14,7 @@ public sealed record CameraHealthSnapshot(
     int ReconnectCount,
     string? LastError,
     DateTimeOffset? NextRetryAt,
-    Uri? HlsUrl);
+    Uri? HlsUrl,
+    Uri? PlaybackUrl);
 
 public sealed record CameraStateTransition(string CameraId, CameraHealthState Previous, CameraHealthState Current, string? Reason);

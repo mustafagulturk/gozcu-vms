@@ -75,6 +75,52 @@ public sealed class SegmentRepository
         return rows.Select(r => r.ToSegment()).ToList();
     }
 
+    public async Task<RecordingSegment?> FindByIdAsync(long id, CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var row = await connection.QuerySingleOrDefaultAsync<SegmentRow>(new CommandDefinition(
+            $"SELECT {Columns} FROM recording_segments WHERE id = @id AND deleted_at IS NULL",
+            new { id },
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return row?.ToSegment();
+    }
+
+    /// <summary>
+    /// Geri oynatma zaman çizelgesi için aralıkla kesişen parçalar. <see cref="FindAsync"/>'ten farkı daha yüksek
+    /// üst sınırdır: 60 sn'lik parçalarla bir gün 1440 parçadır.
+    /// </summary>
+    public Task<IReadOnlyList<RecordingSegment>> FindForPlaybackAsync(
+        string cameraId,
+        DateTimeOffset from,
+        DateTimeOffset to,
+        int limit,
+        CancellationToken cancellationToken) =>
+        QueryAsync(
+            $"""
+            SELECT {Columns}
+              FROM recording_segments
+             WHERE deleted_at IS NULL
+               AND camera_id = @cameraId
+               AND ended_at > @from
+               AND started_at < @to
+             ORDER BY started_at
+             LIMIT @limit
+            """,
+            new { cameraId, from = from.ToUniversalTime(), to = to.ToUniversalTime(), limit = Math.Clamp(limit, 1, 20_000) },
+            cancellationToken);
+
+    /// <summary>Silinmemiş tüm parçalar; açılışta disk ile veritabanını uzlaştırmak için kullanılır.</summary>
+    public Task<IReadOnlyList<RecordingSegment>> ListActiveAsync(CancellationToken cancellationToken) =>
+        QueryAsync($"SELECT {Columns} FROM recording_segments WHERE deleted_at IS NULL ORDER BY started_at", null, cancellationToken);
+
+    private async Task<IReadOnlyList<RecordingSegment>> QueryAsync(string sql, object? parameters, CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<SegmentRow>(new CommandDefinition(sql, parameters, cancellationToken: cancellationToken))
+            .ConfigureAwait(false);
+        return rows.Select(r => r.ToSegment()).ToList();
+    }
+
     // Npgsql timestamptz değerlerini UTC DateTime olarak okur; kayda dönüştürülürken DateTimeOffset yapılır.
     private sealed class SegmentRow
     {

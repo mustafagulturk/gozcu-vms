@@ -22,6 +22,11 @@ public sealed partial class CameraOptions
             {
                 errors.Add($"Geçersiz kamera kimliği '{camera.Id}'. Yalnızca harf, rakam, '-' ve '_' kullanılabilir.");
             }
+            else if (camera.Id.StartsWith('_'))
+            {
+                // "_" ile başlayan dizinler kayıt kökünde sisteme ayrılmıştır (ör. _quarantine).
+                errors.Add($"Kamera kimliği '{camera.Id}' '_' ile başlayamaz.");
+            }
             else if (!seen.Add(camera.Id))
             {
                 errors.Add($"Kamera kimliği '{camera.Id}' birden fazla kez tanımlanmış.");

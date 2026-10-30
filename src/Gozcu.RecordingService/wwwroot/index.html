@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gözcü VMS · Kayıt İzleme</title>
+  <style>
+    :root {
+      --bg: #0f1419; --panel: #182029; --line: #263140; --text: #e6edf3; --muted: #8b98a5;
+      --online: #2ea043; --degraded: #d29922; --offline: #f85149; --connecting: #58a6ff;
+      --gap: #3a2226; --future: #1d252e;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 16px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    header h1 { margin: 0; font-size: 20px; }
+    header span { color: var(--muted); font-size: 14px; }
+    header a { margin-left: auto; color: var(--connecting); font-size: 14px; text-decoration: none; }
+    header a:hover { text-decoration: underline; }
+    main { padding: 24px; display: grid; gap: 16px; max-width: 1200px; margin: 0 auto; }
+    .panel { background: var(--panel); border-radius: 8px; overflow: hidden; }
+    .controls { padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+    label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+    select, input, button {
+      font: inherit; font-size: 14px; color: var(--text); background: var(--bg);
+      border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; min-height: 34px;
+    }
+    input[type="datetime-local"] { color-scheme: dark; }
+    button { cursor: pointer; background: #212c38; }
+    button:hover { border-color: var(--muted); }
+    button.on { background: var(--connecting); border-color: var(--connecting); color: #0f1419; font-weight: 600; }
+    button.primary { background: var(--online); border-color: var(--online); color: #0f1419; font-weight: 600; }
+    button:disabled { opacity: .5; cursor: default; }
+    .group { display: inline-flex; }
+    .group button { border-radius: 0; margin-left: -1px; }
+    .group button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+    .group button:last-child { border-radius: 0 6px 6px 0; }
+    .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; cursor: pointer; }
+    .stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; visibility: hidden; }
+    .stage video.active { visibility: visible; }
+    .overlay { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 8px 14px; border-radius: 6px;
+      background: rgba(15, 20, 25, .85); color: var(--text); font-size: 14px; text-align: center; max-width: 90%; pointer-events: none; }
+    .overlay:empty { display: none; }
+    .toast { position: absolute; right: 12px; top: 12px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      background: var(--degraded); color: #0f1419; opacity: 0; transition: opacity .3s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+    .bar { padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+    .clock { display: grid; }
+    .clock .time { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .5px; }
+    .clock .date { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .timeline { padding: 8px 16px 12px; }
+    .timeline canvas { width: 100%; height: 64px; display: block; touch-action: pan-y; cursor: pointer; }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); margin-top: 6px; align-items: center; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+    .legend .stats { margin-left: auto; }
+    .muted { color: var(--muted); }
+    .error { color: var(--offline); word-break: break-word; font-size: 14px; }
+    .export { padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: end; border-top: 1px solid var(--line); }
+    .export .note { font-size: 13px; color: var(--muted); flex-basis: 100%; }
+    @media (max-width: 640px) {
+      header { padding: 12px 16px; }
+      main { padding: 12px 0; gap: 12px; }
+      .panel { border-radius: 0; }
+      .controls label, .export label { flex: 1 1 140px; }
+      .controls select, .controls input, .export input { width: 100%; }
+      .clock .time { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Gözcü VMS</h1>
+    <span>Kayıt izleme · Aşama 2</span>
+    <a id="live-link" href="#">Canlı izleme →</a>
+  </header>
+  <main>
+    <section class="panel">
+      <div class="controls">
+        <label>Kamera <select id="camera"></select></label>
+        <label>Tarih ve saat <input id="time" type="datetime-local" step="1"></label>
+        <label>Pencere
+          <select id="window">
+            <option value="1">1 sa</option>
+            <option value="6">6 sa</option>
+            <option value="24">24 sa</option>
+          </select>
+        </label>
+        <button id="go" class="primary">Git</button>
+        <button id="now" title="Son kayıtlara git">Şimdi</button>
+      </div>
+      <div id="error" class="error" style="padding: 0 16px"></div>
+    </section>
+
+    <section class="panel">
+      <div class="stage" id="stage">
+        <video id="video-a" class="active" muted playsinline preload="auto"></video>
+        <video id="video-b" muted playsinline preload="auto"></video>
+        <div class="overlay" id="overlay">Kamera ve saat seçin.</div>
+        <div class="toast" id="toast"></div>
+      </div>
+      <div class="bar">
+        <div class="clock">
+          <span class="time" id="clock-time">--:--:--</span>
+          <span class="date" id="clock-date">&nbsp;</span>
+        </div>
+        <div class="buttons">
+          <button id="back" title="10 saniye geri (←)">−10 sn</button>
+          <button id="play" title="Oynat / duraklat (boşluk)">Oynat</button>
+          <button id="forward" title="10 saniye ileri (→)">+10 sn</button>
+          <span class="group" id="speeds">
+            <button data-rate="1" class="on">1×</button>
+            <button data-rate="2">2×</button>
+            <button data-rate="4">4×</button>
+          </span>
+        </div>
+      </div>
+      <div class="timeline">
+        <canvas id="timeline" aria-label="Zaman çizelgesi; tıklayarak o ana gidin"></canvas>
+        <div class="legend">
+          <span><i style="background: var(--online)"></i>Kayıt var</span>
+          <span><i style="background: var(--gap)"></i>Kayıt yok</span>
+          <span><i style="background: var(--connecting)"></i>Oynatma konumu</span>
+          <span class="stats" id="stats"></span>
+        </div>
+      </div>
+      <div class="export">
+        <label>Klip başlangıcı <input id="export-from" type="datetime-local" step="1"></label>
+        <label>Klip bitişi <input id="export-to" type="datetime-local" step="1"></label>
+        <button id="export-fill" title="Oynatma konumunu içeren 5 dakikalık aralık">Konumdan doldur</button>
+        <button id="export" class="primary">Klibi indir</button>
+        <div class="note" id="export-note">Klip yeniden kodlanmadan üretilir; anahtar kare nedeniyle birkaç saniye erken başlayabilir.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    "use strict";
+    const $ = (id) => document.getElementById(id);
+    const MINUTE = 60_000, HOUR = 60 * MINUTE;
+    const state = {
+      config: { maxExportSeconds: 3600, contiguityToleranceSeconds: 1.5 },
+      camera: null,
+      windowMs: HOUR,
+      timeline: null,       // { fromMs, toMs, segments, gaps, coverage, recordedSeconds, truncated }
+      followNow: false,     // pencere "şimdi"ye dayalıysa periyodik yenilenir
+      loadingTimeline: false,
+      current: null,        // oynatılan parça
+      active: $("video-a"),
+      standby: $("video-b"),
+      standbySeg: null,     // bekleme oynatıcısına önceden yüklenen parça
+      generation: 0,        // her yeni konumlandırmada artar; eski asenkron işler bırakılır
+      rate: 1,
+      wantPlay: true,
+      playheadMs: null,
+      waitTimer: null,
+      hoverMs: null,
+      dragMs: null,
+    };
+
+    // ---- Yardımcılar ----
+    const pad = (n) => String(n).padStart(2, "0");
+    function toLocalInput(ms) {
+      const d = new Date(ms);
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+    function fromLocalInput(value) {
+      if (!value) return null;
+      const ms = new Date(value).getTime(); // saat dilimi olmayan değer yerel saat olarak yorumlanır
+      return Number.isFinite(ms) ? ms : null;
+    }
+    const iso = (ms) => new Date(Math.round(ms)).toISOString().replace(/\.\d{3}Z$/, "Z");
+    const timeFmt = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const dateFmt = new Intl.DateTimeFormat("tr-TR", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+    function formatDuration(seconds) {
+      const s = Math.round(seconds), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+      if (h > 0) return `${h} sa ${m} dk`;
+      if (m > 0) return `${m} dk${r ? ` ${r} sn` : ""}`;
+      return `${r} sn`;
+    }
+    const tolMs = () => state.config.contiguityToleranceSeconds * 1000;
+
+    async function api(path) {
+      const response = await fetch(path);
+      if (!response.ok) {
+        let message = `${response.status} ${response.statusText}`;
+        try { const problem = await response.json(); message = problem.detail || problem.title || message; } catch { /* gövde yok */ }
+        const error = new Error(message);
+        error.status = response.status;
+        throw error;
+      }
+      return response.json();
+    }
+    const normalizeSegment = (s) => ({ ...s, startMs: Date.parse(s.start), endMs: Date.parse(s.end) });
+    const normalizeRange = (r) => ({ startMs: Date.parse(r.start), endMs: Date.parse(r.end) });
+
+    function showError(message) { $("error").textContent = message || ""; $("error").style.padding = message ? "0 16px 12px" : "0 16px"; }
+    function setOverlay(message) { $("overlay").textContent = message || ""; }
+    let toastTimer;
+    function toast(message) {
+      const el = $("toast");
+      el.textContent = message;
+      el.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove("show"), 2500);
+    }
+
+    // ---- Zaman çizelgesi verisi ----
+    async function loadTimeline(centerMs) {
+      if (!state.camera) return;
+      const now = Date.now();
+      let toMs = Math.min(centerMs, now) + state.windowMs / 2;
+      state.followNow = toMs >= now;
+      if (toMs > now) toMs = now;
+      const fromMs = toMs - state.windowMs;
+      state.loadingTimeline = true;
+      try {
+        const data = await api(`/api/playback/${encodeURIComponent(state.camera)}/timeline?from=${iso(fromMs)}&to=${iso(toMs)}`);
+        state.timeline = {
+          fromMs: Date.parse(data.from), toMs: Date.parse(data.to),
+          segments: data.segments.map(normalizeSegment),
+          gaps: data.gaps.map(normalizeRange),
+          coverage: data.coverage.map(normalizeRange),
+          recordedSeconds: data.recordedSeconds,
+          truncated: data.truncated,
+        };
+        const t = state.timeline;
+        $("stats").textContent = `Kayıtlı: ${formatDuration(t.recordedSeconds)} / ${formatDuration((t.toMs - t.fromMs) / 1000)} · ${t.gaps.length} boşluk`
+          + (t.truncated ? " · liste kısaltıldı" : "");
+        showError("");
+      } finally {
+        state.loadingTimeline = false;
+        draw();
+      }
+    }
+
+    // Sunucudaki PlaybackPlanner.Locate ile aynı kural: anı içeren parça, yoksa sonraki parçanın başı.
+    function localLocate(ms) {
+      const segments = state.timeline?.segments ?? [];
+      for (const s of segments) {
+        if (s.startMs <= ms && ms < s.endMs) return { segment: s, offset: (ms - s.startMs) / 1000 };
+        if (s.startMs > ms) return { segment: s, offset: 0 };
+      }
+      return null;
+    }
+
+    async function serverLocate(ms) {
+      try {
+        const data = await api(`/api/playback/${encodeURIComponent(state.camera)}/locate?time=${iso(ms)}`);
+        return { segment: normalizeSegment(data.segment), offset: data.offsetSeconds };
+      } catch (e) {
+        if (e.status === 404) return null;
+        throw e;
+      }
+    }
+
+    async function findNext(current) {
+      const segments = state.timeline?.segments ?? [];
+      const index = segments.findIndex((s) => s.id === current.id);
+      const local = index >= 0 ? segments[index + 1] : segments.find((s) => s.startMs > current.startMs);
+      if (local) return local;
+      const position = await serverLocate(current.endMs);
+      return position && position.segment.id !== current.id ? position.segment : null;
+    }
+
+    // Çakışan parçalarda önceki parçanın kapsadığı kısım atlanır.
+    const offsetAfter = (current, next) => (current && next.startMs < current.endMs - tolMs() ? (current.endMs - next.startMs) / 1000 : 0);
+
+    // ---- Oynatıcı ----
+    function loadInto(video, segment, offsetSeconds) {
+      return new Promise((resolve, reject) => {
+        const done = (ok) => () => {
+          video.removeEventListener("loadedmetadata", onMeta);
+          video.removeEventListener("error", onError);
+          ok ? resolve() : reject(new Error("Parça açılamadı"));
+        };
+        const onMeta = () => {
+          if (offsetSeconds > 0) video.currentTime = Math.min(offsetSeconds, Math.max(0, (video.duration || offsetSeconds + 1) - 0.1));
+          done(true)();
+        };
+        const onError = done(false);
+        video.addEventListener("loadedmetadata", onMeta);
+        video.addEventListener("error", onError);
+        video.dataset.segmentId = segment.id;
+        video.defaultPlaybackRate = state.rate;
+        video.playbackRate = state.rate;
+        video.src = segment.mediaUrl;
+        video.load();
+      });
+    }
+
+    function showActive() {
+      state.active.classList.add("active");
+      state.standby.classList.remove("active");
+    }
+
+    function startActive() {
+      state.active.playbackRate = state.rate;
+      if (state.wantPlay) state.active.play().catch(() => { state.wantPlay = false; updatePlayButton(); });
+      updatePlayButton();
+    }
+
+    async function preloadNext(generation) {
+      const current = state.current;
+      if (!current) return;
+      try {
+        const next = await findNext(current);
+        if (generation !== state.generation || state.current !== current || !next) return;
+        state.standbySeg = next;
+        await loadInto(state.standby, next, offsetAfter(current, next));
+      } catch {
+        if (generation === state.generation) state.standbySeg = null;
+      }
+    }
+
+    async function playSegment(segment, offsetSeconds, generation) {
+      clearTimeout(state.waitTimer);
+      state.current = segment;
+      state.standbySeg = null;
+      state.standby.pause();
+      setOverlay("Yükleniyor…");
+      try {
+        await loadInto(state.active, segment, offsetSeconds);
+      } catch {
+        if (generation !== state.generation) return;
+        toast("Parça açılamadı, sonrakine geçiliyor");
+        const next = await findNext(segment).catch(() => null);
+        if (generation === state.generation) next ? playSegment(next, 0, generation) : waitForMore(segment, generation);
+        return;
+      }
+      if (generation !== state.generation) return;
+      setOverlay("");
+      showActive();
+      startActive();
+      preloadNext(generation);
+    }
+
+    // Kesintisiz geçiş: önceden yüklenmiş bekleme oynatıcısı öne alınır, eskisi sonraki parçayı yükler.
+    async function advance() {
+      const current = state.current;
+      const generation = state.generation;
+      if (!current) return;
+      let next = state.standbySeg;
+      if (!next || state.standby.dataset.segmentId !== String(next.id) || state.standby.readyState < 1) {
+        next = await findNext(current).catch(() => null);
+        if (generation !== state.generation) return;
+        if (!next) { waitForMore(current, generation); return; }
+        playSegment(next, offsetAfter(current, next), generation);
+        noteGap(current, next);
+        return;
+      }
+      noteGap(current, next);
+      const previous = state.active;
+      state.active = state.standby;
+      state.standby = previous;
+      state.current = next;
+      state.standbySeg = null;
+      showActive();
+      previous.pause();
+      startActive();
+      preloadNext(generation);
+    }
+
+    function noteGap(current, next) {
+      const gap = (next.startMs - current.endMs) / 1000;
+      if (gap * 1000 > tolMs()) toast(`${formatDuration(gap)} kayıt boşluğu atlandı`);
+    }
+
+    // Kaydın sonuna gelindi: yeni parça yazılana kadar birkaç saniyede bir bakılır.
+    function waitForMore(current, generation) {
+      setOverlay("Kayıt sonu · yeni kayıt bekleniyor…");
+      clearTimeout(state.waitTimer);
+      state.waitTimer = setTimeout(async () => {
+        if (generation !== state.generation) return;
+        const next = await findNext(current).catch(() => null);
+        if (generation !== state.generation) return;
+        if (next) {
+          if (state.followNow) loadTimeline(Date.now()).catch(() => {});
+          noteGap(current, next);
+          playSegment(next, 0, generation);
+        } else {
+          waitForMore(current, generation);
+        }
+      }, 5000);
+    }
+
+    async function playAt(ms) {
+      const generation = ++state.generation;
+      clearTimeout(state.waitTimer);
+      ms = Math.min(ms, Date.now());
+      state.playheadMs = ms;
+      try {
+        const t = state.timeline;
+        if (!t || ms < t.fromMs || ms > t.toMs) await loadTimeline(ms);
+        if (generation !== state.generation) return;
+        let position = localLocate(ms);
+        if (!position) {
+          position = await serverLocate(ms);
+          if (generation !== state.generation) return;
+          if (position && position.segment.startMs > state.timeline.toMs) await loadTimeline(position.segment.startMs);
+        }
+        if (generation !== state.generation) return;
+        if (!position) {
+          state.current = null;
+          state.active.pause();
+          state.active.removeAttribute("src");
+          state.active.load();
+          setOverlay("Bu andan sonra kayıt yok.");
+          draw();
+          return;
+        }
+        if (position.offset === 0 && position.segment.startMs > ms + tolMs()) toast(`${formatDuration((position.segment.startMs - ms) / 1000)} kayıt boşluğu atlandı`);
+        await playSegment(position.segment, position.offset, generation);
+      } catch (e) {
+        if (generation === state.generation) { showError(e.message); setOverlay(""); }
+      }
+    }
+
+    function seekTo(ms) {
+      const current = state.current;
+      if (current && ms >= current.startMs && ms < current.endMs && state.active.readyState >= 1) {
+        state.active.currentTime = (ms - current.startMs) / 1000;
+        state.playheadMs = ms;
+        draw();
+        return;
+      }
+      playAt(ms);
+    }
+
+    function currentPlayhead() {
+      if (state.current && state.active.dataset.segmentId === String(state.current.id) && state.active.readyState >= 1) {
+        return state.current.startMs + state.active.currentTime * 1000;
+      }
+      return state.playheadMs;
+    }
+
+    function updatePlayButton() { $("play").textContent = state.wantPlay ? "Duraklat" : "Oynat"; }
+
+    for (const video of [state.active, state.standby]) {
+      video.addEventListener("ended", () => { if (video === state.active) advance(); });
+    }
+
+    // ---- Zaman çizelgesi çizimi ----
+    const canvas = $("timeline");
+    const ctx = canvas.getContext("2d");
+    const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720].map((m) => m * MINUTE);
+
+    function alignedTicks(fromMs, toMs, step) {
+      const d = new Date(fromMs);
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      const ticks = [];
+      for (let t = dayStart + Math.ceil((fromMs - dayStart) / step) * step; t <= toMs; t += step) ticks.push(t);
+      return ticks;
+    }
+
+    function draw() {
+      const dpr = window.devicePixelRatio || 1;
+      const width = canvas.clientWidth, height = canvas.clientHeight;
+      if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      const t = state.timeline;
+      if (!t || width === 0) return;
+
+      const span = t.toMs - t.fromMs;
+      const x = (ms) => ((ms - t.fromMs) / span) * width;
+      const barY = 6, barH = 26;
+      const css = getComputedStyle(document.documentElement);
+      const color = (name) => css.getPropertyValue(name).trim();
+
+      ctx.fillStyle = color("--gap");
+      ctx.fillRect(0, barY, width, barH);
+      ctx.fillStyle = color("--online");
+      for (const r of t.coverage) ctx.fillRect(x(r.startMs), barY, Math.max(1, x(r.endMs) - x(r.startMs)), barH);
+
+      // Ölçek: etiketler en az ~70 px, ara çizgiler en az ~8 px aralıklı.
+      const pxPerMs = width / span;
+      const labelStep = TICK_STEPS.find((s) => s * pxPerMs >= 70) ?? TICK_STEPS[TICK_STEPS.length - 1];
+      const minorStep = [...TICK_STEPS].reverse().find((s) => s < labelStep && labelStep % s === 0 && s * pxPerMs >= 8);
+      ctx.strokeStyle = color("--muted");
+      ctx.globalAlpha = 0.5;
+      if (minorStep) {
+        ctx.beginPath();
+        for (const tick of alignedTicks(t.fromMs, t.toMs, minorStep)) { const px = Math.round(x(tick)) + 0.5; ctx.moveTo(px, barY + barH); ctx.lineTo(px, barY + barH + 4); }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.fillStyle = color("--muted");
+      ctx.font = "11px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      for (const tick of alignedTicks(t.fromMs, t.toMs, labelStep)) {
+        const px = Math.round(x(tick)) + 0.5;
+        ctx.moveTo(px, barY + barH);
+        ctx.lineTo(px, barY + barH + 8);
+        const d = new Date(tick);
+        const label = d.getHours() === 0 && d.getMinutes() === 0 ? `${pad(d.getDate())}.${pad(d.getMonth() + 1)}` : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        ctx.fillText(label, Math.min(Math.max(px, 16), width - 16), barY + barH + 10);
+      }
+      ctx.stroke();
+
+      const marker = (ms, style, lineWidth) => {
+        if (ms == null || ms < t.fromMs || ms > t.toMs) return;
+        const px = Math.round(x(ms)) + 0.5;
+        ctx.strokeStyle = style;
+        ctx.lineWidth = lineWidth;
+        ctx.beginPath();
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, barY + barH + 4);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      };
+      const preview = state.dragMs ?? state.hoverMs;
+      marker(preview, "rgba(230, 237, 243, .6)", 1);
+      marker(state.playheadMs, color("--connecting"), 2);
+      if (preview != null) {
+        const label = timeFmt.format(preview);
+        ctx.font = "600 11px system-ui, sans-serif";
+        const w = ctx.measureText(label).width + 10;
+        const px = Math.min(Math.max(x(preview) - w / 2, 0), width - w);
+        ctx.fillStyle = "rgba(15, 20, 25, .9)";
+        ctx.fillRect(px, barY + 5, w, 16);
+        ctx.fillStyle = color("--text");
+        ctx.textAlign = "left";
+        ctx.fillText(label, px + 5, barY + 7);
+      }
+    }
+
+    function msFromPointer(event) {
+      const t = state.timeline;
+      const rect = canvas.getBoundingClientRect();
+      const ratio = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
+      return t.fromMs + ratio * (t.toMs - t.fromMs);
+    }
+    canvas.addEventListener("pointerdown", (e) => {
+      if (!state.timeline) return;
+      canvas.setPointerCapture(e.pointerId);
+      state.dragMs = msFromPointer(e);
+      draw();
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (!state.timeline) return;
+      if (state.dragMs != null) state.dragMs = msFromPointer(e); else state.hoverMs = msFromPointer(e);
+      draw();
+    });
+    canvas.addEventListener("pointerup", (e) => {
+      if (state.dragMs == null) return;
+      const ms = msFromPointer(e);
+      state.dragMs = null;
+      state.hoverMs = null;
+      seekTo(ms);
+    });
+    canvas.addEventListener("pointercancel", () => { state.dragMs = null; draw(); });
+    canvas.addEventListener("pointerleave", () => { state.hoverMs = null; draw(); });
+    new ResizeObserver(draw).observe(canvas);
+
+    // Oynatma konumu ve saat göstergesi.
+    let lastFrame = 0, lastRecenter = 0;
+    function tick(now) {
+      requestAnimationFrame(tick);
+      if (now - lastFrame < 100) return;
+      lastFrame = now;
+      const ms = currentPlayhead();
+      if (ms == null) return;
+      state.playheadMs = ms;
+      $("clock-time").textContent = timeFmt.format(ms);
+      $("clock-date").textContent = `${dateFmt.format(ms)} · UTC ${new Date(ms).toISOString().slice(11, 19)}`;
+      // Konum pencerenin sağ kenarına yaklaştıysa ve sonrası varsa pencere kaydırılır.
+      const t = state.timeline;
+      if (t && !state.loadingTimeline && state.dragMs == null && now - lastRecenter > 5000
+          && ms > t.fromMs + 0.95 * (t.toMs - t.fromMs) && t.toMs < Date.now() - 5000) {
+        lastRecenter = now;
+        loadTimeline(ms + state.windowMs * 0.4).catch((e) => showError(e.message));
+      }
+      draw();
+    }
+    requestAnimationFrame(tick);
+
+    // ---- Kontroller ----
+    function togglePlay() {
+      if (!state.current) { const ms = fromLocalInput($("time").value); if (ms != null) playAt(ms); return; }
+      state.wantPlay = !state.wantPlay;
+      if (state.wantPlay) state.active.play().catch(() => {}); else state.active.pause();
+      updatePlayButton();
+    }
+    $("play").addEventListener("click", togglePlay);
+    $("stage").addEventListener("click", togglePlay);
+    $("back").addEventListener("click", () => { const ms = currentPlayhead(); if (ms != null) seekTo(ms - 10_000); });
+    $("forward").addEventListener("click", () => { const ms = currentPlayhead(); if (ms != null) seekTo(ms + 10_000); });
+    for (const button of $("speeds").querySelectorAll("button")) {
+      button.addEventListener("click", () => {
+        state.rate = Number(button.dataset.rate);
+        for (const b of $("speeds").querySelectorAll("button")) b.classList.toggle("on", b === button);
+        for (const video of [state.active, state.standby]) { video.defaultPlaybackRate = state.rate; video.playbackRate = state.rate; }
+      });
+    }
+    document.addEventListener("keydown", (e) => {
+      if (e.target.closest("input, select, button")) return;
+      if (e.key === " ") { e.preventDefault(); togglePlay(); }
+      else if (e.key === "ArrowLeft") $("back").click();
+      else if (e.key === "ArrowRight") $("forward").click();
+    });
+
+    function updateUrl(timeMs) {
+      const params = new URLSearchParams();
+      if (state.camera) params.set("camera", state.camera);
+      if (timeMs != null) params.set("time", iso(timeMs));
+      history.replaceState(null, "", `${location.pathname}?${params}`);
+    }
+
+    function go() {
+      const ms = fromLocalInput($("time").value);
+      if (ms == null) { showError("Geçerli bir tarih ve saat girin."); return; }
+      state.wantPlay = true;
+      state.timeline = null;
+      updateUrl(ms);
+      fillExport(ms);
+      playAt(ms);
+    }
+    $("go").addEventListener("click", go);
+    $("now").addEventListener("click", () => {
+      $("time").value = toLocalInput(Date.now() - 2 * MINUTE);
+      go();
+    });
+    $("camera").addEventListener("change", () => {
+      state.camera = $("camera").value;
+      const ms = currentPlayhead() ?? fromLocalInput($("time").value);
+      if (ms != null) $("time").value = toLocalInput(ms);
+      go();
+    });
+    $("window").addEventListener("change", () => {
+      state.windowMs = Number($("window").value) * HOUR;
+      const ms = currentPlayhead() ?? fromLocalInput($("time").value);
+      if (ms != null) loadTimeline(ms).catch((e) => showError(e.message));
+    });
+
+    // ---- Klip dışa aktarma ----
+    function fillExport(ms) {
+      const start = Math.floor(ms / (5 * MINUTE)) * 5 * MINUTE;
+      $("export-from").value = toLocalInput(start);
+      $("export-to").value = toLocalInput(start + 5 * MINUTE);
+    }
+    $("export-fill").addEventListener("click", () => { const ms = currentPlayhead(); if (ms != null) fillExport(ms); });
+    $("export").addEventListener("click", async () => {
+      const fromMs = fromLocalInput($("export-from").value), toMs = fromLocalInput($("export-to").value);
+      const note = $("export-note");
+      note.classList.remove("error");
+      const fail = (message) => { note.textContent = message; note.classList.add("error"); };
+      if (!state.camera) return fail("Önce bir kamera seçin.");
+      if (fromMs == null || toMs == null) return fail("Klip başlangıç ve bitişini girin.");
+      if (toMs <= fromMs) return fail("Bitiş zamanı başlangıçtan sonra olmalı.");
+      if ((toMs - fromMs) / 1000 > state.config.maxExportSeconds) return fail(`Klip en fazla ${formatDuration(state.config.maxExportSeconds)} olabilir.`);
+      const button = $("export");
+      button.disabled = true;
+      try {
+        // Ön kontrol: aralıkta kayıt yoksa indirme yerine anlaşılır bir mesaj gösterilir.
+        const query = `from=${iso(fromMs)}&to=${iso(toMs)}`;
+        const check = await api(`/api/playback/${encodeURIComponent(state.camera)}/timeline?${query}`);
+        if (check.recordedSeconds <= 0) return fail("Seçilen aralıkta kayıt yok.");
+        const link = document.createElement("a");
+        link.href = `/api/playback/${encodeURIComponent(state.camera)}/export?${query}`;
+        link.download = "";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        note.textContent = `Klip hazırlanıyor (${formatDuration(check.recordedSeconds)} kayıt); indirme birazdan başlar.`;
+      } catch (e) {
+        fail(e.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    // ---- Açılış ----
+    setInterval(() => {
+      if (state.followNow && !state.loadingTimeline && state.timeline) loadTimeline(Date.now()).catch(() => {});
+    }, 30_000);
+
+    async function init() {
+      try {
+        const [config, cameras] = await Promise.all([api("/api/playback/config"), api("/api/playback/cameras")]);
+        state.config = config;
+        $("live-link").href = config.publicLiveUrl;
+        const select = $("camera");
+        for (const camera of cameras) select.add(new Option(`${camera.name} (${camera.id})`, camera.id));
+        if (cameras.length === 0) { setOverlay("Yapılandırılmış kamera yok."); return; }
+
+        // Derin bağlantı: /?camera=cam1&time=2026-10-30T10:15:00Z
+        const params = new URLSearchParams(location.search);
+        const requested = params.get("camera");
+        if (requested && cameras.some((c) => c.id === requested)) select.value = requested;
+        else if (requested) showError(`'${requested}' adlı kamera bulunamadı.`);
+        state.camera = select.value;
+        const requestedTime = Date.parse(params.get("time") ?? "");
+        const start = Number.isFinite(requestedTime) ? requestedTime : Date.now() - 2 * MINUTE;
+        $("time").value = toLocalInput(start);
+        go();
+      } catch (e) {
+        showError(`Yapılandırma alınamadı: ${e.message}`);
+      }
+    }
+    updatePlayButton();
+    init();
+  </script>
+</body>
+</html>
