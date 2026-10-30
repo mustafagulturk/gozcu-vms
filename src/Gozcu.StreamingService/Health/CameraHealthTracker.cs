@@ -17,6 +17,7 @@ public sealed class CameraHealthTracker
     private readonly StreamingOptions _options;
     private readonly TimeProvider _time;
     private readonly Uri? _hlsUrl;
+    private readonly Uri? _playbackUrl;
 
     private CameraHealthState _state = CameraHealthState.Connecting;
     private DateTimeOffset _stateSince;
@@ -37,6 +38,7 @@ public sealed class CameraHealthTracker
         _time = time;
         _stateSince = time.GetUtcNow();
         _hlsUrl = new Uri(options.PublicHlsBaseUrl, $"{camera.Id}/index.m3u8");
+        _playbackUrl = options.PublicPlaybackUrl is null ? null : new Uri(options.PublicPlaybackUrl, $"?camera={camera.Id}");
     }
 
     public string CameraId => _camera.Id;
@@ -146,7 +148,7 @@ public sealed class CameraHealthTracker
             return new CameraHealthSnapshot(
                 _camera.Id, _camera.Name, _state, _stateSince, _lastMediaAt,
                 _rate is null ? null : Math.Round(_rate.Value, 2),
-                _stream, _reconnectCount, _lastError, _nextRetryAt, _hlsUrl);
+                _stream, _reconnectCount, _lastError, _nextRetryAt, _hlsUrl, _playbackUrl);
         }
     }
 

@@ -15,6 +15,15 @@ public class CameraOptionsTests
     }
 
     [Fact]
+    public void Ids_reserved_for_system_directories_are_rejected()
+    {
+        var options = new CameraOptions();
+        options.Items.Add(new CameraDefinition { Id = "_quarantine", RtspUrl = new Uri("rtsp://h/a") });
+
+        Assert.Single(options.Validate());
+    }
+
+    [Fact]
     public void Invalid_ids_duplicates_and_urls_are_reported()
     {
         var options = new CameraOptions();

@@ -112,6 +112,15 @@ public class CameraHealthTrackerTests
         Assert.Equal(1280, snapshot.Stream!.Width);
     }
 
+    [Fact]
+    public void Snapshot_links_to_playback_page_of_the_camera()
+    {
+        Assert.Equal(new Uri("http://localhost:5081/?camera=cam1"), _tracker.Snapshot().PlaybackUrl);
+
+        var withoutPlayback = new CameraHealthTracker(Camera, new StreamingOptions { PublicPlaybackUrl = null }, _time);
+        Assert.Null(withoutPlayback.Snapshot().PlaybackUrl);
+    }
+
     private TimeSpan _out = TimeSpan.Zero;
 
     private CameraStateTransition? Feed(TimeSpan outTime)

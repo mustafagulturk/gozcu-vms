@@ -5,6 +5,15 @@ x-cameras: &cameras
   Cameras__0__Id: cam1
   Cameras__0__Name: Kavşak Kamerası
   Cameras__0__RtspUrl: rtsp://mediamtx:8554/cam1
+  Cameras__1__Id: cam2
+  Cameras__1__Name: Otopark Girişi
+  Cameras__1__RtspUrl: rtsp://mediamtx:8554/cam2
+  Cameras__2__Id: cam3
+  Cameras__2__Name: Yaya Geçidi
+  Cameras__2__RtspUrl: rtsp://mediamtx:8554/cam3
+  Cameras__3__Id: cam4
+  Cameras__3__Name: Bina Girişi
+  Cameras__3__RtspUrl: rtsp://mediamtx:8554/cam4
 
 x-backend: &backend
   ConnectionStrings__Gozcu: Host=postgres;Port=5432;Database=gozcu;Username=gozcu;Password=gozcu
@@ -69,6 +78,7 @@ services:
       <<: [*cameras, *backend]
       RabbitMq__ClientName: gozcu-streaming
       Streaming__PublicHlsBaseUrl: ${PUBLIC_HLS_BASE_URL:-http://localhost:8888/}
+      Streaming__PublicPlaybackUrl: ${PUBLIC_PLAYBACK_URL:-http://localhost:5081/}
     ports:
       - "5080:8080"   # Canlı izleme sayfası ve kamera durumu API'si
     depends_on:
@@ -95,10 +105,11 @@ services:
       Recording__SegmentSeconds: ${SEGMENT_SECONDS:-60}
       Recording__Retention__MaxTotalBytes: ${RETENTION_MAX_BYTES:-10737418240}
       Recording__Retention__MinFreeBytes: ${RETENTION_MIN_FREE_BYTES:-1073741824}
+      Recording__Playback__PublicLiveUrl: ${PUBLIC_LIVE_URL:-http://localhost:5080/}
     volumes:
       - recordings:/recordings
     ports:
-      - "5081:8080"   # Kayıt durumu ve parça arama API'si
+      - "5081:8080"   # Geri oynatma sayfası, kayıt durumu ve arama API'si
     depends_on:
       mediamtx:
         condition: service_started

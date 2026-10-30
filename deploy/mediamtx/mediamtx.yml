@@ -26,11 +26,18 @@ hlsSegmentDuration: 1s
 webrtc: true
 webrtcAddress: :8889
 
+# Her path bir sahte kamera. samples/videos/<path>.mp4 varsa o yayınlanır; yoksa yanındaki test deseni.
+# Yeni kamera eklemek için buraya bir path, docker-compose.yml'deki x-cameras listesine de bir kayıt ekleyin.
 paths:
   cam1:
-    runOnInit: sh /fake-camera.sh
+    runOnInit: sh /fake-camera.sh testsrc 1280x720 25
     runOnInitRestart: yes
-  # 2. aşamada çoklu kamera:
-  # cam2:
-  #   runOnInit: sh /fake-camera.sh
-  #   runOnInitRestart: yes
+  cam2:
+    runOnInit: sh /fake-camera.sh testsrc2 1280x720 25
+    runOnInitRestart: yes
+  cam3:
+    runOnInit: sh /fake-camera.sh testsrc 960x540 15
+    runOnInitRestart: yes
+  cam4:
+    runOnInit: sh /fake-camera.sh life 640x360 25
+    runOnInitRestart: yes

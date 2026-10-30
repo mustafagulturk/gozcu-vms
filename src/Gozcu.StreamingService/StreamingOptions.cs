@@ -9,6 +9,9 @@ public sealed class StreamingOptions
     /// <summary>Tarayıcının canlı HLS akışını çekeceği MediaMTX adresi (ör. http://localhost:8888).</summary>
     public Uri PublicHlsBaseUrl { get; set; } = new("http://localhost:8888");
 
+    /// <summary>Kayıt servisinin geri oynatma sayfası (ör. http://localhost:5081/). Boşsa bağlantı gösterilmez.</summary>
+    public Uri? PublicPlaybackUrl { get; set; } = new("http://localhost:5081/");
+
     /// <summary>Bu süre boyunca yeni medya gelmezse kamera Degraded sayılır.</summary>
     public TimeSpan StallTimeout { get; set; } = TimeSpan.FromSeconds(4);
 
