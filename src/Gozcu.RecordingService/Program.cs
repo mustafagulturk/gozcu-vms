@@ -5,6 +5,8 @@ using Gozcu.Infrastructure.Persistence;
 using Gozcu.Media.Processes;
 using Gozcu.RecordingService;
 using Gozcu.RecordingService.Indexing;
+using Gozcu.RecordingService.Playback;
+using Gozcu.RecordingService.Reconciliation;
 using Gozcu.RecordingService.Recording;
 using Gozcu.RecordingService.Retention;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -23,9 +25,12 @@ builder.Services.AddSingleton<RecorderRegistry>();
 builder.Services.AddSingleton<RecordingMetrics>();
 builder.Services.AddGozcuPersistence(builder.Configuration);
 builder.Services.AddGozcuMessaging(builder.Configuration);
+// Uzlaştırma, kayıt süreçleri yeni dosya açmadan önce diskteki mevcut parçaların listesini alır.
+builder.Services.AddStartupReconciliation();
 builder.Services.AddHostedService<RecorderService>();
 builder.Services.AddHostedService<SegmentIndexer>();
 builder.Services.AddHostedService<RetentionService>();
+builder.Services.AddPlayback();
 
 var app = builder.Build();
 
@@ -44,6 +49,9 @@ api.MapGet("/segments", async (
     string? cameraId, DateTimeOffset? from, DateTimeOffset? to, int? limit,
     SegmentRepository repository, CancellationToken cancellationToken) =>
     await repository.FindAsync(cameraId, from, to, limit ?? 100, cancellationToken));
+
+app.MapPlaybackApi();
+app.MapReconciliationApi();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c.Tags.Contains("ready") });

@@ -6,6 +6,8 @@ public sealed class RecordingOptions
 
     public string FfmpegPath { get; set; } = "ffmpeg";
 
+    public string FfprobePath { get; set; } = "ffprobe";
+
     /// <summary>Kayıtların yazılacağı kök dizin; her kamera için bir alt dizin açılır.</summary>
     public string RootPath { get; set; } = "recordings";
 
@@ -19,6 +21,8 @@ public sealed class RecordingOptions
     public TimeSpan ReconnectMaxDelay { get; set; } = TimeSpan.FromSeconds(30);
 
     public RetentionOptions Retention { get; set; } = new();
+
+    public PlaybackOptions Playback { get; set; } = new();
 
     public TimeSpan SegmentDuration => TimeSpan.FromSeconds(SegmentSeconds);
 
@@ -34,4 +38,13 @@ public sealed class RetentionOptions
     public long MinFreeBytes { get; set; } = 1L * 1024 * 1024 * 1024;
 
     public TimeSpan CheckInterval { get; set; } = TimeSpan.FromSeconds(30);
+}
+
+public sealed class PlaybackOptions
+{
+    /// <summary>Tek seferde dışa aktarılabilecek en uzun klip.</summary>
+    public TimeSpan MaxExportDuration { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>Geri oynatma sayfasındaki "Canlı izleme" bağlantısı (akış servisinin tarayıcıdan erişilen adresi).</summary>
+    public Uri PublicLiveUrl { get; set; } = new("http://localhost:5080/");
 }
