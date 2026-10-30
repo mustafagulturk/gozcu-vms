@@ -20,6 +20,7 @@ docker compose restart mediamtx
 
 Kaynak: [Intel IoT DevKit sample videos](https://github.com/intel-iot-devkit/sample-videos), lisans
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (© Intel Corporation).
+Değişiklikler: videolar `prepare-video.sh` ile 1280x720 / 25 fps / 2 sn GOP H.264 biçimine dönüştürülür, ses kaldırılır.
 
 Kendi videonuzu (ör. Pexels'tan bir trafik videosu) kullanmak için hazırlama betiğine verin:
 
