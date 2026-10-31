@@ -29,6 +29,15 @@ jobs:
       - name: FFmpeg kur
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
+      - name: YOLOX modelini önbellekten al
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: model-yolox_tiny-${{ hashFiles('scripts/download-model.sh') }}
+
+      - name: YOLOX modelini indir (SHA-256 doğrulamalı)
+        run: ./scripts/download-model.sh yolox_tiny
+
       - name: Bağımlılıkları geri yükle
         run: dotnet restore
 
@@ -63,6 +72,11 @@ jobs:
       SEGMENT_SECONDS: 10
     steps:
       - uses: actions/checkout@v4
+
+      - name: Örnek güvenlik kamerası videolarını indir (insan ve araç tespiti için)
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+          ./scripts/download-sample-videos.sh
 
       - name: İmajları derle
         run: docker compose build

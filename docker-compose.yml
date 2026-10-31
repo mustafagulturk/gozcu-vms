@@ -118,6 +118,28 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  # Tek kod çözen servis: saniyede birkaç kare çözüp YOLOX (ONNX Runtime) ile insan ve araç arar.
+  analysis:
+    build:
+      context: .
+      dockerfile: deploy/analysis.Dockerfile
+    image: gozcu/analysis-service:dev
+    restart: unless-stopped
+    environment:
+      <<: [*cameras, *backend]
+      RabbitMq__ClientName: gozcu-analysis
+      Analysis__FramesPerSecond: ${ANALYSIS_FPS:-2}
+      Analysis__MaxConcurrentInferences: ${ANALYSIS_MAX_CONCURRENCY:-2}
+    ports:
+      - "5082:8080"   # Analiz sayfası, tespit ve olay API'si
+    depends_on:
+      mediamtx:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
   pgdata:
   recordings:

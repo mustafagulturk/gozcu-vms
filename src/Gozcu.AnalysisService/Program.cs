@@ -3,6 +3,7 @@ using Gozcu.AnalysisService;
 using Gozcu.AnalysisService.Api;
 using Gozcu.Contracts.Cameras;
 using Gozcu.Infrastructure;
+using Gozcu.Vision;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 
@@ -17,8 +18,16 @@ builder.Services.AddGozcuMessaging(builder.Configuration);
 builder.Services.AddAnalysis(builder.Configuration, services =>
 {
     var options = services.GetRequiredService<IOptions<AnalysisOptions>>().Value;
-    // TODO(vision): new OnnxYoloxDetector(...)
-    throw new NotImplementedException($"Gerçek nesne tespit edici henüz bağlanmadı (model: {options.ModelPath}).");
+    return new OnnxYoloxDetector(
+        new YoloxDetectorOptions
+        {
+            ModelPath = options.ModelPath,
+            ConfidenceThreshold = options.ConfidenceThreshold,
+            NmsThreshold = options.NmsThreshold,
+            MaxDetections = options.MaxDetections,
+            IntraOpThreads = options.IntraOpThreads,
+        },
+        services.GetRequiredService<ILogger<OnnxYoloxDetector>>());
 });
 
 var app = builder.Build();
