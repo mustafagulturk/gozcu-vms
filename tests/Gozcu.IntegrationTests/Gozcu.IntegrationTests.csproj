@@ -20,6 +20,8 @@
     <ProjectReference Include="..\..\src\Gozcu.Infrastructure\Gozcu.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Gozcu.StreamingService\Gozcu.StreamingService.csproj" />
     <ProjectReference Include="..\..\src\Gozcu.RecordingService\Gozcu.RecordingService.csproj" />
+    <ProjectReference Include="..\..\src\Gozcu.Vision\Gozcu.Vision.csproj" />
+    <ProjectReference Include="..\..\src\Gozcu.AnalysisService\Gozcu.AnalysisService.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
