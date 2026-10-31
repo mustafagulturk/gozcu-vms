@@ -18,6 +18,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<DatabaseMigrator>();
         services.AddSingleton<CameraRepository>();
         services.AddSingleton<SegmentRepository>();
+        services.AddSingleton<DetectionRepository>();
         services.AddHostedService<DatabaseMigrationService>();
         services.AddHealthChecks().AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"]);
         return services;

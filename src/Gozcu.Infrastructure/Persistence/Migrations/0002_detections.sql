@@ -11,6 +11,10 @@ CREATE TABLE detection_frames (
 
 CREATE INDEX ix_detection_frames_camera_time ON detection_frames (camera_id, captured_at);
 
+-- Saklama süresi dolan karelerin silinmesi (kameradan bağımsız "captured_at < sınır"). Satırlar zamana göre
+-- eklendiği için BRIN dizini çok küçük kalır ve aralık taramasını yeterince daraltır.
+CREATE INDEX ix_detection_frames_time_brin ON detection_frames USING brin (captured_at);
+
 -- Olaylar: bir kategorinin bir kamerada görünmeye başlayıp kaybolduğu aralık.
 -- Zaman çizelgesi işaretleri ve olay araması (4. aşama) bu tabloyu kullanır.
 CREATE TABLE detection_events (
@@ -27,3 +31,6 @@ CREATE TABLE detection_events (
 
 CREATE INDEX ix_detection_events_camera_time ON detection_events (camera_id, started_at);
 CREATE INDEX ix_detection_events_open ON detection_events (camera_id) WHERE ended_at IS NULL;
+
+-- Kamera belirtilmeden "en yeni olaylar" sorgusu.
+CREATE INDEX ix_detection_events_time ON detection_events (started_at DESC);
