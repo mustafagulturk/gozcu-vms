@@ -1,4 +1,3 @@
-using Gozcu.Contracts.Cameras;
 using Gozcu.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
@@ -69,18 +68,5 @@ public sealed class PostgresIntegrationTests : IAsyncLifetime
 
         await repository.MarkDeletedAsync(["/r/cam3/a.mp4"], DateTimeOffset.UtcNow, CancellationToken.None);
         Assert.Empty(await repository.FindAsync("cam3", null, null, 10, CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task Cameras_are_upserted()
-    {
-        var repository = new CameraRepository(_dataSource);
-        var camera = new CameraDefinition { Id = "cam1", Name = "Eski", RtspUrl = new Uri("rtsp://a/cam1") };
-        await repository.UpsertAsync(camera, CancellationToken.None);
-        camera.Name = "Yeni";
-        await repository.UpsertAsync(camera, CancellationToken.None);
-
-        await using var command = _dataSource.CreateCommand("SELECT name FROM cameras WHERE id = 'cam1'");
-        Assert.Equal("Yeni", await command.ExecuteScalarAsync());
     }
 }

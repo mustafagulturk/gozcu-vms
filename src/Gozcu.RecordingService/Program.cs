@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using Gozcu.Contracts.Cameras;
 using Gozcu.Infrastructure;
 using Gozcu.Infrastructure.Persistence;
 using Gozcu.Media.Processes;
@@ -10,11 +9,9 @@ using Gozcu.RecordingService.Reconciliation;
 using Gozcu.RecordingService.Recording;
 using Gozcu.RecordingService.Retention;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.Configure<CameraOptions>(o => builder.Configuration.GetSection(CameraOptions.SectionName).Bind(o.Items));
 builder.Services.Configure<RecordingOptions>(builder.Configuration.GetSection(RecordingOptions.SectionName));
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
@@ -25,6 +22,8 @@ builder.Services.AddSingleton<RecorderRegistry>();
 builder.Services.AddSingleton<RecordingMetrics>();
 builder.Services.AddGozcuPersistence(builder.Configuration);
 builder.Services.AddGozcuMessaging(builder.Configuration);
+// Kayıt edilecek kameralar veritabanındaki katalogdan gelir; katalog değişince kayıt süreçleri uzlaştırılır.
+builder.Services.AddGozcuCameraCatalog(builder.Configuration);
 // Uzlaştırma, kayıt süreçleri yeni dosya açmadan önce diskteki mevcut parçaların listesini alır.
 builder.Services.AddStartupReconciliation();
 builder.Services.AddHostedService<RecorderService>();
@@ -33,13 +32,6 @@ builder.Services.AddHostedService<RetentionService>();
 builder.Services.AddPlayback();
 
 var app = builder.Build();
-
-var cameraErrors = app.Services.GetRequiredService<IOptions<CameraOptions>>().Value.Validate();
-if (cameraErrors.Count > 0)
-{
-    throw new InvalidOperationException("Kamera yapılandırması hatalı:\n" + string.Join('\n', cameraErrors));
-}
-
 
 var api = app.MapGroup("/api/recordings");
 api.MapGet("/status", (RecorderRegistry recorders, RecordingMetrics metrics) =>

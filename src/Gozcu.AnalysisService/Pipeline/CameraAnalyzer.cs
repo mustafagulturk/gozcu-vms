@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using Gozcu.AnalysisService.Events;
 using Gozcu.Contracts.Analysis;
+using Gozcu.Contracts.Cameras;
 using Gozcu.Media.Ffmpeg;
 using Gozcu.Media.Frames;
 using Gozcu.Media.Processes;
@@ -347,7 +348,7 @@ public sealed class CameraAnalyzer
         {
             if (error is not null)
             {
-                _lastError = error.Message;
+                _lastError = RtspUrlMasking.Redact(error.Message);
             }
 
             _lastError ??= $"ffmpeg {exitCode} koduyla çıktı";
@@ -372,7 +373,7 @@ public sealed class CameraAnalyzer
     {
         lock (_lock)
         {
-            _lastError = line;
+            _lastError = RtspUrlMasking.Redact(line);
         }
     }
 

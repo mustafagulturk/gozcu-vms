@@ -1,3 +1,4 @@
+using Gozcu.Contracts.Cameras;
 using Gozcu.Media.Ffmpeg;
 using Gozcu.Media.Processes;
 
@@ -99,7 +100,7 @@ public sealed class CameraRecorder : ISupervisedProcessHandler
         {
             lock (_lock)
             {
-                _lastError = line.Trim();
+                _lastError = RtspUrlMasking.Redact(line.Trim());
             }
         }
     }
@@ -110,7 +111,7 @@ public sealed class CameraRecorder : ISupervisedProcessHandler
         {
             if (error is not null)
             {
-                _lastError = error.Message;
+                _lastError = RtspUrlMasking.Redact(error.Message);
             }
 
             _lastError ??= $"ffmpeg {exitCode} koduyla çıktı";

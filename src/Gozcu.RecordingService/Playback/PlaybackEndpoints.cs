@@ -1,5 +1,5 @@
 using System.Globalization;
-using Gozcu.Contracts.Cameras;
+using Gozcu.Infrastructure.Cameras;
 using Gozcu.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;
 
@@ -40,15 +40,24 @@ public static class PlaybackEndpoints
             ContiguityToleranceSeconds = PlaybackPlanner.ContiguityTolerance.TotalSeconds,
         });
 
-        api.MapGet("/cameras", (IOptions<CameraOptions> cameras) =>
-            cameras.Value.Enabled.Select(c => new { c.Id, Name = string.IsNullOrWhiteSpace(c.Name) ? c.Id : c.Name }));
+        // Katalogdaki tüm kameralar (devre dışılar dahil) ve katalogdan silinmiş ama diskte kaydı kalan kameralar.
+        api.MapGet("/cameras", async (ICameraCatalog catalog, SegmentRepository repository, CancellationToken cancellationToken) =>
+        {
+            var cameras = catalog.Cameras
+                .Select(c => new PlaybackCamera(c.Id, string.IsNullOrWhiteSpace(c.Name) ? c.Id : c.Name, c.Enabled, Deleted: false))
+                .ToList();
+            var known = cameras.Select(c => c.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var recorded = await repository.ListCameraIdsAsync(cancellationToken);
+            cameras.AddRange(recorded.Where(id => !known.Contains(id)).Select(id => new PlaybackCamera(id, id, Enabled: false, Deleted: true)));
+            return cameras.OrderBy(c => c.Id, StringComparer.Ordinal);
+        });
 
         // ?from=2026-10-30T10:00:00Z&to=2026-10-30T11:00:00Z — verilmezse son bir saat.
         api.MapGet("/{cameraId}/timeline", async (
             string cameraId, string? from, string? to,
-            IOptions<CameraOptions> cameras, SegmentRepository repository, TimeProvider time, CancellationToken cancellationToken) =>
+            ICameraCatalog catalog, SegmentRepository repository, TimeProvider time, CancellationToken cancellationToken) =>
         {
-            if (!IsKnownCamera(cameras.Value, cameraId))
+            if (!await IsKnownCameraAsync(catalog, repository, cameraId, cancellationToken))
             {
                 return UnknownCamera(cameraId);
             }
@@ -94,9 +103,9 @@ public static class PlaybackEndpoints
         // ?time=2026-10-30T10:15:00Z — o anı içeren parça ve parça içindeki konum; an bir boşluktaysa sonraki parçanın başı.
         api.MapGet("/{cameraId}/locate", async (
             string cameraId, string? time,
-            IOptions<CameraOptions> cameras, SegmentRepository repository, TimeProvider clock, CancellationToken cancellationToken) =>
+            ICameraCatalog catalog, SegmentRepository repository, TimeProvider clock, CancellationToken cancellationToken) =>
         {
-            if (!IsKnownCamera(cameras.Value, cameraId))
+            if (!await IsKnownCameraAsync(catalog, repository, cameraId, cancellationToken))
             {
                 return UnknownCamera(cameraId);
             }
@@ -143,11 +152,11 @@ public static class PlaybackEndpoints
         // ?from=...&to=... — aralığı yeniden kodlamadan tek bir MP4 olarak indirir.
         api.MapGet("/{cameraId}/export", async (
             string cameraId, string? from, string? to,
-            IOptions<CameraOptions> cameras, IOptions<RecordingOptions> options,
+            ICameraCatalog catalog, IOptions<RecordingOptions> options,
             SegmentRepository repository, SegmentFileResolver files, ClipExporter exporter,
             HttpContext context, CancellationToken cancellationToken) =>
         {
-            if (!IsKnownCamera(cameras.Value, cameraId))
+            if (!await IsKnownCameraAsync(catalog, repository, cameraId, cancellationToken))
             {
                 return UnknownCamera(cameraId);
             }
@@ -210,11 +219,16 @@ public static class PlaybackEndpoints
 
     private static object ToDto(TimeRange range) => new { range.Start, range.End };
 
-    private static bool IsKnownCamera(CameraOptions cameras, string cameraId) =>
-        cameras.Items.Any(c => string.Equals(c.Id, cameraId, StringComparison.Ordinal));
+    /// <summary>
+    /// Kamera katalogda var ya da diskte kaydı kalmış (silinmiş kamera) mı? Silinen kameranın kayıtları saklama politikası
+    /// temizleyene kadar geri oynatılabilir.
+    /// </summary>
+    private static async Task<bool> IsKnownCameraAsync(
+        ICameraCatalog catalog, SegmentRepository repository, string cameraId, CancellationToken cancellationToken) =>
+        catalog.Find(cameraId) is not null || await repository.HasSegmentsAsync(cameraId, cancellationToken);
 
     private static IResult UnknownCamera(string cameraId) =>
-        Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Kamera bulunamadı", detail: $"'{cameraId}' adlı kamera tanımlı değil.");
+        Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Kamera bulunamadı", detail: $"'{cameraId}' adlı kamera tanımlı değil ve kaydı yok.");
 
     private static IResult BadRequest(string? detail) =>
         Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Geçersiz istek", detail: detail);
@@ -239,3 +253,6 @@ public static class PlaybackEndpoints
         return false;
     }
 }
+
+/// <param name="Deleted">Kamera katalogdan silinmiş; yalnızca diskte kalan kayıtları var.</param>
+public sealed record PlaybackCamera(string Id, string Name, bool Enabled, bool Deleted);

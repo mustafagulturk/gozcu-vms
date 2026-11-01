@@ -113,6 +113,26 @@ public sealed class SegmentRepository
     public Task<IReadOnlyList<RecordingSegment>> ListActiveAsync(CancellationToken cancellationToken) =>
         QueryAsync($"SELECT {Columns} FROM recording_segments WHERE deleted_at IS NULL ORDER BY started_at", null, cancellationToken);
 
+    /// <summary>Silinmemiş parçası olan kameraların kimlikleri (katalogdan silinmiş kameralar dahil).</summary>
+    public async Task<IReadOnlyList<string>> ListCameraIdsAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var ids = await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT DISTINCT camera_id FROM recording_segments WHERE deleted_at IS NULL ORDER BY camera_id COLLATE \"C\"",
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return ids.ToList();
+    }
+
+    /// <summary>Kameranın silinmemiş en az bir parçası var mı?</summary>
+    public async Task<bool> HasSegmentsAsync(string cameraId, CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "SELECT EXISTS (SELECT 1 FROM recording_segments WHERE camera_id = @cameraId AND deleted_at IS NULL)",
+            new { cameraId },
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+    }
+
     private async Task<IReadOnlyList<RecordingSegment>> QueryAsync(string sql, object? parameters, CancellationToken cancellationToken)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
