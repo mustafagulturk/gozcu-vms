@@ -14,6 +14,7 @@
     <PackageReference Include="Testcontainers" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Testcontainers.RabbitMq" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Gozcu.Media\Gozcu.Media.csproj" />
@@ -22,6 +23,7 @@
     <ProjectReference Include="..\..\src\Gozcu.RecordingService\Gozcu.RecordingService.csproj" />
     <ProjectReference Include="..\..\src\Gozcu.Vision\Gozcu.Vision.csproj" />
     <ProjectReference Include="..\..\src\Gozcu.AnalysisService\Gozcu.AnalysisService.csproj" />
+    <ProjectReference Include="..\..\src\Gozcu.Gateway\Gozcu.Gateway.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
