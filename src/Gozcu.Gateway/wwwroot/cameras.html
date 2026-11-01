@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gözcü VMS · Kameralar</title>
+  <link rel="stylesheet" href="/panel.css">
+  <style>
+    main { padding: 24px; display: grid; gap: 24px; max-width: 1400px; margin: 0 auto; grid-template-columns: minmax(0, 1fr) 380px; align-items: start; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 10px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    tr:last-child td { border-bottom: 0; }
+    tr.editing { background: #1c2733; }
+    .cam-name { font-weight: 600; }
+    .cam-id { color: var(--muted); font-size: 12px; }
+    .url { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); word-break: break-all; }
+    .state { display: grid; gap: 4px; justify-items: start; }
+    .state .since { font-size: 12px; color: var(--muted); }
+    .state .error { font-size: 12px; max-width: 280px; }
+    .actions { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+    .actions button { padding: 4px 10px; min-height: 30px; font-size: 13px; }
+    .version { font-variant-numeric: tabular-nums; color: var(--muted); }
+    form { padding: 16px; display: grid; gap: 14px; }
+    form label input:not([type="checkbox"]) { width: 100%; }
+    .hint { font-size: 12px; color: var(--muted); }
+    .field-error { font-size: 12px; color: var(--offline); }
+    .field-error:empty { display: none; }
+    .toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); }
+    .toggle input { width: 18px; height: 18px; }
+    .form-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+    .message { font-size: 14px; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--line); word-break: break-word; }
+    .message:empty { display: none; }
+    .message.error { border-color: var(--offline); }
+    .message.ok { border-color: var(--online); }
+    .message.warn { border-color: var(--degraded); color: var(--degraded); }
+    .probe { font-size: 13px; }
+    .probe:empty { display: none; }
+    .list-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+    .list-head h2 { margin: 0; font-size: 16px; }
+    @media (max-width: 1000px) { main { grid-template-columns: minmax(0, 1fr); } #editor { order: -1; } }
+    @media (max-width: 640px) {
+      main { padding: 12px 0; gap: 12px; }
+      /* Dar ekranda tablo satırları kartlara dönüşür; sayfa yatay kaydırılmaz. */
+      thead { display: none; }
+      table, tbody, tr, td { display: block; }
+      tr { padding: 10px 16px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; }
+      td { padding: 0; border: 0; }
+      td.col-url { grid-column: 1 / -1; }
+      td.col-version { display: none; }
+      td.col-actions { grid-column: 1 / -1; }
+      .actions { justify-content: flex-start; flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar" data-page="cameras"><span class="summary" id="summary"></span></header>
+  <main>
+    <section class="panel">
+      <div class="list-head"><h2>Kameralar</h2><button id="new" type="button" class="primary">Kamera ekle</button></div>
+      <div class="error" id="list-error" style="padding: 12px 16px"></div>
+      <table>
+        <thead><tr><th>Kamera</th><th>RTSP adresi</th><th>Durum</th><th>Sürüm</th><th></th></tr></thead>
+        <tbody id="rows"><tr><td class="muted" colspan="5">Yükleniyor…</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel" id="editor">
+      <h2 id="form-title">Kamera ekle</h2>
+      <form id="form" novalidate autocomplete="off">
+        <label>Kimlik
+          <input id="f-id" name="id" required maxlength="64" placeholder="ör. cam5" spellcheck="false" autocapitalize="off">
+          <span class="hint" id="id-hint">Kısa ve kalıcı bir ad; sonradan değiştirilemez. Kayıt klasörü ve canlı yayın yolu bu adı kullanır.</span>
+          <span class="field-error" data-for="id"></span>
+        </label>
+        <label>Ad
+          <input id="f-name" name="name" required maxlength="128" placeholder="ör. Arka Kapı">
+          <span class="field-error" data-for="name"></span>
+        </label>
+        <label>RTSP adresi
+          <input id="f-rtsp" name="rtspUrl" type="url" placeholder="rtsp://kullanici:parola@192.168.1.20:554/stream1" spellcheck="false" autocapitalize="off">
+          <span class="hint" id="rtsp-hint" hidden></span>
+          <span class="field-error" data-for="rtspUrl"></span>
+        </label>
+        <label class="toggle"><input id="f-enabled" name="enabled" type="checkbox" checked> Etkin (izlenir, kaydedilir ve analiz edilir)</label>
+        <span class="field-error" data-for="enabled"></span>
+        <div class="form-buttons">
+          <button type="submit" class="primary" id="save">Kaydet</button>
+          <button type="button" id="probe">Bağlantıyı test et</button>
+          <button type="button" id="cancel">Temizle</button>
+        </div>
+        <div class="probe" id="probe-result"></div>
+        <div class="message" id="message" role="status"></div>
+      </form>
+    </section>
+  </main>
+
+  <script src="/panel.js"></script>
+  <script>
+    "use strict";
+    const { $, api, healthLabels, dateTimeFormat } = Gozcu;
+    const state = {
+      cameras: [],
+      editing: null,          // düzenlenen kameranın sunucudaki son hâli (CameraView); null ise yeni kamera
+      confirmDelete: null,    // silme onayı bekleyen kamera kimliği
+      confirmTimer: null,
+      busy: false,
+    };
+    const fields = { id: $("f-id"), name: $("f-name"), rtspUrl: $("f-rtsp"), enabled: $("f-enabled") };
+    const etag = (version) => `"${version}"`;
+
+    // ---- Liste ----
+    function stateCell(cam) {
+      const cell = document.createElement("div");
+      cell.className = "state";
+      const badge = document.createElement("span");
+      const health = cam.health;
+      const key = !cam.enabled ? "Disabled" : health?.state ?? "Connecting";
+      badge.className = `badge ${key}`;
+      badge.textContent = !cam.enabled ? "Devre dışı" : healthLabels[key] ?? key;
+      cell.appendChild(badge);
+      if (cam.enabled && health) {
+        const since = document.createElement("span");
+        since.className = "since";
+        since.textContent = `${dateTimeFormat.format(Date.parse(health.stateSince))} itibarıyla`;
+        cell.appendChild(since);
+        if (health.state !== "Online" && health.lastError) {
+          const error = document.createElement("span");
+          error.className = "error";
+          error.textContent = health.lastError;
+          cell.appendChild(error);
+        }
+      }
+      return cell;
+    }
+
+    function renderRows() {
+      const body = $("rows");
+      if (state.cameras.length === 0) {
+        body.innerHTML = '<tr><td class="muted" colspan="5">Henüz kamera yok. Sağdaki formdan ekleyin.</td></tr>';
+        return;
+      }
+      body.replaceChildren(...state.cameras.map((cam) => {
+        const row = document.createElement("tr");
+        if (state.editing?.id === cam.id) row.className = "editing";
+        const name = document.createElement("td");
+        name.innerHTML = '<div class="cam-name"></div><div class="cam-id"></div>';
+        name.firstChild.textContent = cam.name;
+        name.lastChild.textContent = cam.id;
+        const url = document.createElement("td");
+        url.className = "col-url url";
+        url.textContent = cam.rtspUrl;
+        const status = document.createElement("td");
+        status.appendChild(stateCell(cam));
+        const version = document.createElement("td");
+        version.className = "col-version version";
+        version.textContent = `v${cam.version}`;
+        const actions = document.createElement("td");
+        actions.className = "col-actions";
+        const box = document.createElement("div");
+        box.className = "actions";
+        const live = document.createElement("a");
+        live.href = Gozcu.playbackLink(cam.id);
+        live.textContent = "Kayıtlar";
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.textContent = "Düzenle";
+        edit.addEventListener("click", () => startEdit(cam));
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "danger";
+        remove.textContent = state.confirmDelete === cam.id ? "Silmeyi onayla" : "Sil";
+        remove.addEventListener("click", () => requestDelete(cam));
+        box.append(live, edit, remove);
+        actions.appendChild(box);
+        row.append(name, url, status, version, actions);
+        return row;
+      }));
+    }
+
+    async function refresh() {
+      try {
+        state.cameras = await api("/api/cameras");
+        $("list-error").textContent = "";
+        const enabled = state.cameras.filter((c) => c.enabled).length;
+        $("summary").textContent = `${state.cameras.length} kamera · ${enabled} etkin`;
+        if (!state.busy) renderRows();
+      } catch (e) {
+        $("list-error").textContent = `Kamera listesi alınamadı: ${e.message}`;
+      }
+    }
+
+    // ---- Form ----
+    function setMessage(text, kind = "") {
+      const el = $("message");
+      el.className = `message ${kind}`;
+      el.textContent = text || "";
+    }
+
+    function clearFieldErrors() {
+      for (const el of document.querySelectorAll(".field-error")) el.textContent = "";
+      for (const input of Object.values(fields)) input.removeAttribute("aria-invalid");
+    }
+
+    function setFieldError(field, text) {
+      const el = document.querySelector(`.field-error[data-for="${field}"]`);
+      if (!el) return false;
+      el.textContent = el.textContent ? `${el.textContent} ${text}` : text;
+      fields[field]?.setAttribute("aria-invalid", "true");
+      return true;
+    }
+
+    // ValidationProblem: { errors: { "RtspUrl": ["..."], ... } } — anahtar büyük/küçük harf ya da "request.rtspUrl" biçiminde olabilir.
+    function showValidation(problem) {
+      const unmatched = [];
+      for (const [key, messages] of Object.entries(problem?.errors ?? {})) {
+        const short = key.split(".").pop().toLowerCase();
+        const field = Object.keys(fields).find((f) => f.toLowerCase() === short);
+        for (const message of [].concat(messages)) {
+          if (!field || !setFieldError(field, message)) unmatched.push(message);
+        }
+      }
+      return unmatched;
+    }
+
+    function startNew() {
+      state.editing = null;
+      $("form").reset();
+      fields.enabled.checked = true;
+      fields.id.disabled = false;
+      $("id-hint").hidden = false;
+      $("rtsp-hint").hidden = true;
+      fields.rtspUrl.placeholder = "rtsp://kullanici:parola@192.168.1.20:554/stream1";
+      $("form-title").textContent = "Kamera ekle";
+      $("cancel").textContent = "Temizle";
+      $("probe-result").textContent = "";
+      clearFieldErrors();
+      renderRows();
+    }
+
+    function startEdit(cam, { keepMessage = false } = {}) {
+      state.editing = cam;
+      fields.id.value = cam.id;
+      fields.id.disabled = true;
+      $("id-hint").hidden = true;
+      fields.name.value = cam.name;
+      fields.rtspUrl.value = "";
+      fields.rtspUrl.placeholder = cam.rtspUrl;
+      $("rtsp-hint").hidden = false;
+      $("rtsp-hint").textContent = "Boş bırakılırsa kayıtlı adres (parolası dahil) korunur.";
+      fields.enabled.checked = cam.enabled;
+      $("form-title").textContent = `Kamera düzenle · ${cam.id} (v${cam.version})`;
+      $("cancel").textContent = "Vazgeç";
+      $("probe-result").textContent = "";
+      clearFieldErrors();
+      if (!keepMessage) setMessage("");
+      renderRows();
+      if (window.matchMedia("(max-width: 1000px)").matches) $("editor").scrollIntoView({ behavior: "smooth", block: "start" });
+      fields.name.focus({ preventScroll: true });
+    }
+
+    // İstemci tarafı ön kontrol; asıl doğrulama sunucudadır (400 yanıtındaki alan hataları da gösterilir).
+    function validateLocally(creating) {
+      let ok = true;
+      const fail = (field, message) => { setFieldError(field, message); ok = false; };
+      if (creating) {
+        const id = fields.id.value.trim();
+        if (!id) fail("id", "Kimlik gerekli.");
+        else if (/[\s/\\?#%]/.test(id)) fail("id", "Kimlikte boşluk ve / \\ ? # % karakterleri kullanılamaz.");
+      }
+      if (!fields.name.value.trim()) fail("name", "Ad gerekli.");
+      const url = fields.rtspUrl.value.trim();
+      if (creating && !url) fail("rtspUrl", "RTSP adresi gerekli.");
+      else if (url && !/^rtsps?:\/\//i.test(url)) fail("rtspUrl", "Adres rtsp:// ile başlamalı.");
+      return ok;
+    }
+
+    async function save(event) {
+      event.preventDefault();
+      if (state.busy) return;
+      clearFieldErrors();
+      setMessage("");
+      const editing = state.editing;
+      if (!validateLocally(!editing)) return;
+      state.busy = true;
+      $("save").disabled = true;
+      try {
+        if (editing) {
+          const body = { name: fields.name.value.trim(), rtspUrl: fields.rtspUrl.value.trim() || null, enabled: fields.enabled.checked };
+          const saved = await api(`/api/cameras/${encodeURIComponent(editing.id)}`, { method: "PUT", body, headers: { "If-Match": etag(editing.version) } });
+          state.busy = false;
+          await refresh();
+          startEdit(saved, { keepMessage: true });
+          setMessage(`${saved.id} kaydedildi (v${saved.version}).`, "ok");
+        } else {
+          const body = { id: fields.id.value.trim(), name: fields.name.value.trim(), rtspUrl: fields.rtspUrl.value.trim(), enabled: fields.enabled.checked };
+          const created = await api("/api/cameras", { method: "POST", body });
+          state.busy = false;
+          startNew();
+          await refresh();
+          setMessage(`${created.id} eklendi. Akış, kayıt ve analiz servisleri birkaç saniye içinde başlatır.`, "ok");
+        }
+      } catch (e) {
+        await handleWriteError(e, editing);
+      } finally {
+        state.busy = false;
+        $("save").disabled = false;
+      }
+    }
+
+    async function handleWriteError(e, editing) {
+      if (e.status === 400) {
+        const unmatched = showValidation(e.problem);
+        setMessage(unmatched.length ? unmatched.join(" ") : "Lütfen işaretli alanları düzeltin.", "error");
+      } else if (e.status === 409) {
+        setFieldError("id", e.message || "Bu kimlikte bir kamera zaten var.");
+        setMessage("Bu kimlikte bir kamera zaten var; başka bir kimlik seçin.", "error");
+      } else if (e.status === 412 && editing) {
+        // İyimser eşzamanlılık: biz düzenlerken başka biri kaydetti. Formdaki değerler korunur, sürüm güncellenir.
+        try {
+          const current = await api(`/api/cameras/${encodeURIComponent(editing.id)}`);
+          state.editing = current;
+          $("form-title").textContent = `Kamera düzenle · ${current.id} (v${current.version})`;
+          setMessage(`Bu kamera siz düzenlerken başkası tarafından değiştirildi (v${editing.version} → v${current.version}). `
+            + `Güncel hâli: “${current.name}”, ${current.rtspUrl}, ${current.enabled ? "etkin" : "devre dışı"}. `
+            + "Formdaki değerleriniz korundu; yine de kaydederseniz bu değişikliğin üzerine yazılır.", "warn");
+        } catch (inner) {
+          setMessage(inner.status === 404 ? "Bu kamera siz düzenlerken silindi." : `Kamera değişmiş, güncel hâli alınamadı: ${inner.message}`, "error");
+        }
+        await refresh();
+      } else if (e.status === 404 && editing) {
+        setMessage("Bu kamera artık yok (silinmiş olabilir).", "error");
+        await refresh();
+      } else {
+        setMessage(`Kaydedilemedi: ${e.message}`, "error");
+      }
+    }
+
+    async function requestDelete(cam) {
+      // İki adımlı onay: ilk tıklama düğmeyi "Silmeyi onayla"ya çevirir (4 sn).
+      if (state.confirmDelete !== cam.id) {
+        state.confirmDelete = cam.id;
+        clearTimeout(state.confirmTimer);
+        state.confirmTimer = setTimeout(() => { state.confirmDelete = null; renderRows(); }, 4000);
+        renderRows();
+        return;
+      }
+      clearTimeout(state.confirmTimer);
+      state.confirmDelete = null;
+      try {
+        await api(`/api/cameras/${encodeURIComponent(cam.id)}`, { method: "DELETE", headers: { "If-Match": etag(cam.version) } });
+        if (state.editing?.id === cam.id) startNew();
+        setMessage(`${cam.id} silindi. Kayıtları diskte kalır; saklama politikası zamanla temizler.`, "ok");
+      } catch (e) {
+        if (e.status === 412) setMessage(`${cam.id} siz bakarken değiştirildi; liste yenilendi. Silmek için tekrar deneyin.`, "warn");
+        else if (e.status === 404) setMessage(`${cam.id} zaten silinmiş.`, "warn");
+        else setMessage(`${cam.id} silinemedi: ${e.message}`, "error");
+      }
+      await refresh();
+    }
+
+    async function probe() {
+      const url = fields.rtspUrl.value.trim();
+      const result = $("probe-result");
+      result.className = "probe";
+      if (!url) {
+        result.classList.add("muted");
+        result.textContent = state.editing
+          ? "Test için adresi yazın; kayıtlı parola gösterilmediğinden mevcut adres buradan test edilemez."
+          : "Test için bir RTSP adresi yazın.";
+        return;
+      }
+      const button = $("probe");
+      button.disabled = true;
+      result.classList.add("muted");
+      result.textContent = "Bağlanılıyor… (en fazla ~8 sn)";
+      try {
+        const data = await api("/api/cameras/probe", { method: "POST", body: { rtspUrl: url } });
+        result.className = `probe ${data.ok ? "ok" : "error"}`;
+        result.textContent = data.ok
+          ? `Bağlantı başarılı: ${String(data.codec ?? "").toUpperCase()} ${data.width}×${data.height}` + (data.fps ? ` @ ${data.fps} fps` : "")
+          : `Bağlanılamadı: ${data.error ?? "bilinmeyen hata"}`;
+      } catch (e) {
+        result.className = "probe error";
+        const unmatched = e.status === 400 ? showValidation(e.problem) : [];
+        result.textContent = `Test yapılamadı: ${unmatched.length ? unmatched.join(" ") : e.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    $("form").addEventListener("submit", save);
+    $("probe").addEventListener("click", probe);
+    $("cancel").addEventListener("click", () => { startNew(); setMessage(""); });
+    $("new").addEventListener("click", () => { startNew(); setMessage(""); fields.id.focus(); });
+    for (const input of Object.values(fields)) {
+      input.addEventListener("input", () => {
+        input.removeAttribute("aria-invalid");
+        const error = document.querySelector(`.field-error[data-for="${input.name}"]`);
+        if (error) error.textContent = "";
+      });
+    }
+
+    startNew();
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>

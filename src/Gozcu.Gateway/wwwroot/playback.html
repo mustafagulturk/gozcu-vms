@@ -4,40 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Gözcü VMS · Kayıt İzleme</title>
+  <link rel="stylesheet" href="/panel.css">
   <style>
-    :root {
-      --bg: #0f1419; --panel: #182029; --line: #263140; --text: #e6edf3; --muted: #8b98a5;
-      --online: #2ea043; --degraded: #d29922; --offline: #f85149; --connecting: #58a6ff;
-      --gap: #3a2226; --future: #1d252e;
-    }
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-    header { padding: 16px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-    header h1 { margin: 0; font-size: 20px; }
-    header span { color: var(--muted); font-size: 14px; }
-    header a { margin-left: auto; color: var(--connecting); font-size: 14px; text-decoration: none; }
-    header a:hover { text-decoration: underline; }
     main { padding: 24px; display: grid; gap: 16px; max-width: 1200px; margin: 0 auto; }
-    .panel { background: var(--panel); border-radius: 8px; overflow: hidden; }
     .controls { padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
-    label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
-    select, input, button {
-      font: inherit; font-size: 14px; color: var(--text); background: var(--bg);
-      border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; min-height: 34px;
-    }
-    input[type="datetime-local"] { color-scheme: dark; }
-    button { cursor: pointer; background: #212c38; }
-    button:hover { border-color: var(--muted); }
-    button.on { background: var(--connecting); border-color: var(--connecting); color: #0f1419; font-weight: 600; }
-    button.primary { background: var(--online); border-color: var(--online); color: #0f1419; font-weight: 600; }
-    button:disabled { opacity: .5; cursor: default; }
-    .group { display: inline-flex; }
-    .group button { border-radius: 0; margin-left: -1px; }
-    .group button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
-    .group button:last-child { border-radius: 0 6px 6px 0; }
     .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; cursor: pointer; }
     .stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; visibility: hidden; }
     .stage video.active { visibility: visible; }
+    .stage canvas.boxes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
     .overlay { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 8px 14px; border-radius: 6px;
       background: rgba(15, 20, 25, .85); color: var(--text); font-size: 14px; text-align: center; max-width: 90%; pointer-events: none; }
     .overlay:empty { display: none; }
@@ -50,30 +24,23 @@
     .clock .date { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .timeline { padding: 8px 16px 12px; }
-    .timeline canvas { width: 100%; height: 64px; display: block; touch-action: pan-y; cursor: pointer; }
-    .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); margin-top: 6px; align-items: center; }
-    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+    .timeline canvas { width: 100%; height: 70px; display: block; touch-action: pan-y; cursor: pointer; }
+    .timeline .legend { margin-top: 6px; }
     .legend .stats { margin-left: auto; }
-    .muted { color: var(--muted); }
-    .error { color: var(--offline); word-break: break-word; font-size: 14px; }
+    .error { font-size: 14px; }
     .export { padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: end; border-top: 1px solid var(--line); }
     .export .note { font-size: 13px; color: var(--muted); flex-basis: 100%; }
     @media (max-width: 640px) {
-      header { padding: 12px 16px; }
       main { padding: 12px 0; gap: 12px; }
-      .panel { border-radius: 0; }
       .controls label, .export label { flex: 1 1 140px; }
       .controls select, .controls input, .export input { width: 100%; }
       .clock .time { font-size: 22px; }
+      .legend .stats { margin-left: 0; flex-basis: 100%; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Gözcü VMS</h1>
-    <span>Kayıt izleme · Aşama 2</span>
-    <a id="live-link" href="#">Canlı izleme →</a>
-  </header>
+  <header class="topbar" data-page="playback"></header>
   <main>
     <section class="panel">
       <div class="controls">
@@ -96,6 +63,7 @@
       <div class="stage" id="stage">
         <video id="video-a" class="active" muted playsinline preload="auto"></video>
         <video id="video-b" muted playsinline preload="auto"></video>
+        <canvas class="boxes" id="boxes" aria-hidden="true"></canvas>
         <div class="overlay" id="overlay">Kamera ve saat seçin.</div>
         <div class="toast" id="toast"></div>
       </div>
@@ -113,6 +81,7 @@
             <button data-rate="2">2×</button>
             <button data-rate="4">4×</button>
           </span>
+          <button id="boxes-toggle" class="on" aria-pressed="true" title="Analiz servisinin tespit kutularını görüntünün üstünde göster (K)">Tespit kutuları</button>
         </div>
       </div>
       <div class="timeline">
@@ -121,6 +90,8 @@
           <span><i style="background: var(--online)"></i>Kayıt var</span>
           <span><i style="background: var(--gap)"></i>Kayıt yok</span>
           <span><i style="background: var(--connecting)"></i>Oynatma konumu</span>
+          <span><i style="background: var(--person)"></i>İnsan olayı</span>
+          <span><i style="background: var(--vehicle)"></i>Araç olayı</span>
           <span class="stats" id="stats"></span>
         </div>
       </div>
@@ -134,6 +105,7 @@
     </section>
   </main>
 
+  <script src="/panel.js"></script>
   <script>
     "use strict";
     const $ = (id) => document.getElementById(id);
@@ -156,6 +128,11 @@
       waitTimer: null,
       hoverMs: null,
       dragMs: null,
+      showBoxes: Gozcu.prefs.get("playback.boxes", true),
+      detections: null,     // { camera, fromMs, toMs, loadedAt, frames: [{ ms, detections }] } — oynatma anının çevresi
+      loadingDetections: false,
+      lastDetectionLoad: 0,
+      events: null,         // { camera, fromMs, toMs, more, items: [{ ...EventView, startMs, endMs }] } — çizelgedeki olaylar
     };
 
     // ---- Yardımcılar ----
@@ -225,13 +202,146 @@
           truncated: data.truncated,
         };
         const t = state.timeline;
-        $("stats").textContent = `Kayıtlı: ${formatDuration(t.recordedSeconds)} / ${formatDuration((t.toMs - t.fromMs) / 1000)} · ${t.gaps.length} boşluk`
-          + (t.truncated ? " · liste kısaltıldı" : "");
+        updateStats();
         showError("");
+        loadEvents(state.camera, t.fromMs, t.toMs);
       } finally {
         state.loadingTimeline = false;
         draw();
       }
+    }
+
+    function updateStats() {
+      const t = state.timeline;
+      if (!t) return;
+      const events = state.events?.camera === state.camera ? state.events : null;
+      $("stats").textContent = `Kayıtlı: ${formatDuration(t.recordedSeconds)} / ${formatDuration((t.toMs - t.fromMs) / 1000)} · ${t.gaps.length} boşluk`
+        + (events ? ` · ${events.items.length}${events.more ? "+" : ""} olay` : "")
+        + (t.truncated ? " · liste kısaltıldı" : "");
+    }
+
+    // ---- Olay işaretleri (analiz servisi) ----
+    // Pencere içindeki olaylar sayfa sayfa alınır; analiz servisine ulaşılamazsa çizelge olaysız çizilir.
+    const MAX_EVENT_PAGES = 5;
+    async function loadEvents(camera, fromMs, toMs) {
+      const items = [];
+      let cursor = null, more = false;
+      try {
+        for (let page = 0; page < MAX_EVENT_PAGES; page++) {
+          const query = new URLSearchParams({ cameraId: camera, from: iso(fromMs), to: iso(toMs), limit: "200" });
+          if (cursor) query.set("cursor", cursor);
+          const data = await api(`/api/analysis/events/search?${query}`);
+          items.push(...data.items);
+          cursor = data.nextCursor;
+          if (!cursor) break;
+          more = page === MAX_EVENT_PAGES - 1;
+        }
+      } catch (e) {
+        console.warn("Olaylar alınamadı", e);
+        if (items.length === 0) return;
+      }
+      if (camera !== state.camera) return;
+      const now = Date.now();
+      state.events = {
+        camera, fromMs, toMs, more,
+        items: items.map((e) => {
+          const startMs = Date.parse(e.startedAt);
+          return { ...e, startMs, endMs: e.endedAt ? Date.parse(e.endedAt) : Math.max(startMs + e.durationSeconds * 1000, now) };
+        }),
+      };
+      updateStats();
+      draw();
+    }
+
+    // ---- Tespit kutuları ----
+    // Oynatma anının çevresindeki tespit kareleri pencere pencere yüklenir (sunucu tek istekte en fazla 15 dk verir).
+    const DETECTION_BEFORE_MS = 30_000, DETECTION_AFTER_MS = 120_000, DETECTION_MATCH_MS = 500;
+    async function ensureDetections(ms) {
+      if (!state.showBoxes || !state.camera || ms == null || state.loadingDetections) return;
+      const d = state.detections?.camera === state.camera ? state.detections : null;
+      const now = Date.now();
+      const inside = d && ms >= d.fromMs && ms <= d.toMs;
+      const comfortable = d && ms >= d.fromMs + 5_000 && ms <= d.toMs - 20_000;
+      // Pencerenin sonu yükleme anından ileriyse o kısım henüz yazılmamış olabilir: en fazla 5 sn'de bir tazelenir.
+      const growing = inside && d.toMs > d.loadedAt;
+      if (comfortable && !growing) return;
+      if (now - state.lastDetectionLoad < (inside ? 5_000 : 1_000)) return;
+      const camera = state.camera;
+      const fromMs = ms - DETECTION_BEFORE_MS, toMs = ms + DETECTION_AFTER_MS;
+      state.loadingDetections = true;
+      state.lastDetectionLoad = now;
+      try {
+        const frames = await api(`/api/analysis/cameras/${encodeURIComponent(camera)}/frames?from=${iso(fromMs)}&to=${iso(toMs)}`);
+        if (camera !== state.camera) return;
+        state.detections = { camera, fromMs, toMs, loadedAt: now, frames: frames.map((f) => ({ ms: Date.parse(f.capturedAt), detections: f.detections })) };
+      } catch (e) {
+        // Analiz servisi kapalıysa ya da kamerayı tanımıyorsa kutusuz devam edilir; aynı pencere tekrar tekrar istenmez.
+        if (camera === state.camera) state.detections = { camera, fromMs, toMs, loadedAt: Infinity, frames: [] };
+        console.warn("Tespit kareleri alınamadı", e);
+      } finally {
+        state.loadingDetections = false;
+      }
+    }
+
+    // Kareler eskiden yeniye sıralı: ikili arama ile en yakın kare; ±0,5 sn'den uzaksa kutu çizilmez.
+    function nearestFrame(ms) {
+      const frames = state.detections?.camera === state.camera ? state.detections.frames : null;
+      if (!frames || frames.length === 0) return null;
+      let lo = 0, hi = frames.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (frames[mid].ms < ms) lo = mid + 1; else hi = mid;
+      }
+      let best = frames[lo];
+      if (lo > 0 && Math.abs(frames[lo - 1].ms - ms) < Math.abs(best.ms - ms)) best = frames[lo - 1];
+      return Math.abs(best.ms - ms) <= DETECTION_MATCH_MS ? best : null;
+    }
+
+    const boxCanvas = $("boxes");
+    const boxCtx = boxCanvas.getContext("2d");
+    function drawBoxes(ms) {
+      const dpr = window.devicePixelRatio || 1;
+      const width = boxCanvas.clientWidth, height = boxCanvas.clientHeight;
+      if (boxCanvas.width !== Math.round(width * dpr) || boxCanvas.height !== Math.round(height * dpr)) {
+        boxCanvas.width = Math.round(width * dpr);
+        boxCanvas.height = Math.round(height * dpr);
+      }
+      boxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      boxCtx.clearRect(0, 0, width, height);
+      const video = state.active;
+      if (!state.showBoxes || !state.current || ms == null || !video.videoWidth) return;
+      const frame = nearestFrame(ms);
+      if (!frame) return;
+      // object-fit: contain — görüntünün tuvaldeki gerçek yeri (siyah şeritler hariç). Kutular 0..1 aralığında.
+      const scale = Math.min(width / video.videoWidth, height / video.videoHeight);
+      const w = video.videoWidth * scale, h = video.videoHeight * scale;
+      const ox = (width - w) / 2, oy = (height - h) / 2;
+      boxCtx.lineWidth = 2;
+      boxCtx.font = "600 12px system-ui, sans-serif";
+      boxCtx.textBaseline = "top";
+      for (const d of frame.detections) {
+        const color = Gozcu.categoryColors[d.category] ?? "#e6edf3";
+        const x = ox + d.x * w, y = oy + d.y * h, bw = d.w * w, bh = d.h * h;
+        boxCtx.strokeStyle = color;
+        boxCtx.strokeRect(x, y, bw, bh);
+        const label = `${Gozcu.labelNames[d.label] ?? d.label} ${Gozcu.pct(d.confidence)}`;
+        const tw = boxCtx.measureText(label).width + 8;
+        const ly = y - oy >= 18 ? y - 18 : y;
+        boxCtx.fillStyle = color;
+        boxCtx.fillRect(x - 1, ly, tw, 18);
+        boxCtx.fillStyle = "#0f1419";
+        boxCtx.fillText(label, x + 3, ly + 3);
+      }
+    }
+
+    function setShowBoxes(on) {
+      state.showBoxes = on;
+      Gozcu.prefs.set("playback.boxes", on);
+      const button = $("boxes-toggle");
+      button.classList.toggle("on", on);
+      button.setAttribute("aria-pressed", String(on));
+      if (on) ensureDetections(currentPlayhead());
+      drawBoxes(currentPlayhead());
     }
 
     // Sunucudaki PlaybackPlanner.Locate ile aynı kural: anı içeren parça, yoksa sonraki parçanın başı.
@@ -443,6 +553,8 @@
     // ---- Zaman çizelgesi çizimi ----
     const canvas = $("timeline");
     const ctx = canvas.getContext("2d");
+    // Çizelge düzeni (CSS piksel): kayıt çubuğu, iki olay şeridi, saat ekseni.
+    const LAYOUT = { barY: 4, barH: 24, laneY: 31, laneH: 5, axisY: 45 };
     const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720].map((m) => m * MINUTE);
 
     function alignedTicks(fromMs, toMs, step) {
@@ -467,7 +579,7 @@
 
       const span = t.toMs - t.fromMs;
       const x = (ms) => ((ms - t.fromMs) / span) * width;
-      const barY = 6, barH = 26;
+      const { barY, barH, laneH, axisY } = LAYOUT;
       const css = getComputedStyle(document.documentElement);
       const color = (name) => css.getPropertyValue(name).trim();
 
@@ -475,6 +587,14 @@
       ctx.fillRect(0, barY, width, barH);
       ctx.fillStyle = color("--online");
       for (const r of t.coverage) ctx.fillRect(x(r.startMs), barY, Math.max(1, x(r.endMs) - x(r.startMs)), barH);
+
+      // Olay işaretleri: kategori başına bir şerit (insan üstte, araç altta).
+      for (const e of visibleEvents()) {
+        if (e.endMs < t.fromMs || e.startMs > t.toMs) continue;
+        ctx.fillStyle = color(e.category === "Vehicle" ? "--vehicle" : "--person");
+        const left = Math.max(0, x(e.startMs));
+        ctx.fillRect(left, laneFor(e.category), Math.max(2, Math.min(width, x(e.endMs)) - left), laneH);
+      }
 
       // Ölçek: etiketler en az ~70 px, ara çizgiler en az ~8 px aralıklı.
       const pxPerMs = width / span;
@@ -484,7 +604,7 @@
       ctx.globalAlpha = 0.5;
       if (minorStep) {
         ctx.beginPath();
-        for (const tick of alignedTicks(t.fromMs, t.toMs, minorStep)) { const px = Math.round(x(tick)) + 0.5; ctx.moveTo(px, barY + barH); ctx.lineTo(px, barY + barH + 4); }
+        for (const tick of alignedTicks(t.fromMs, t.toMs, minorStep)) { const px = Math.round(x(tick)) + 0.5; ctx.moveTo(px, axisY); ctx.lineTo(px, axisY + 4); }
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
@@ -495,11 +615,11 @@
       ctx.textBaseline = "top";
       for (const tick of alignedTicks(t.fromMs, t.toMs, labelStep)) {
         const px = Math.round(x(tick)) + 0.5;
-        ctx.moveTo(px, barY + barH);
-        ctx.lineTo(px, barY + barH + 8);
+        ctx.moveTo(px, axisY);
+        ctx.lineTo(px, axisY + 8);
         const d = new Date(tick);
         const label = d.getHours() === 0 && d.getMinutes() === 0 ? `${pad(d.getDate())}.${pad(d.getMonth() + 1)}` : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-        ctx.fillText(label, Math.min(Math.max(px, 16), width - 16), barY + barH + 10);
+        ctx.fillText(label, Math.min(Math.max(px, 16), width - 16), axisY + 10);
       }
       ctx.stroke();
 
@@ -510,7 +630,7 @@
         ctx.lineWidth = lineWidth;
         ctx.beginPath();
         ctx.moveTo(px, 0);
-        ctx.lineTo(px, barY + barH + 4);
+        ctx.lineTo(px, axisY + 4);
         ctx.stroke();
         ctx.lineWidth = 1;
       };
@@ -518,7 +638,9 @@
       marker(preview, "rgba(230, 237, 243, .6)", 1);
       marker(state.playheadMs, color("--connecting"), 2);
       if (preview != null) {
-        const label = timeFmt.format(preview);
+        const hit = eventAt(preview, null);
+        const label = timeFmt.format(preview)
+          + (hit ? ` · ${Gozcu.categoryLabels[hit.category] ?? hit.category} ${formatDuration(hit.durationSeconds)}` : "");
         ctx.font = "600 11px system-ui, sans-serif";
         const w = ctx.measureText(label).width + 10;
         const px = Math.min(Math.max(x(preview) - w / 2, 0), width - w);
@@ -528,6 +650,19 @@
         ctx.textAlign = "left";
         ctx.fillText(label, px + 5, barY + 7);
       }
+    }
+
+    function visibleEvents() {
+      return state.events?.camera === state.camera ? state.events.items : [];
+    }
+    const laneFor = (category) => (category === "Vehicle" ? LAYOUT.laneY + LAYOUT.laneH + 2 : LAYOUT.laneY);
+    // Bir andaki olay (±4 px tolerans); y verilirse yalnızca o yükseklikteki şeride bakılır.
+    function eventAt(ms, y) {
+      const t = state.timeline;
+      if (!t) return null;
+      const tolerance = (4 / Math.max(1, canvas.clientWidth)) * (t.toMs - t.fromMs);
+      return visibleEvents().find((e) => ms >= e.startMs - tolerance && ms <= e.endMs + tolerance
+        && (y == null || (y >= laneFor(e.category) - 2 && y <= laneFor(e.category) + LAYOUT.laneH + 2))) ?? null;
     }
 
     function msFromPointer(event) {
@@ -549,7 +684,10 @@
     });
     canvas.addEventListener("pointerup", (e) => {
       if (state.dragMs == null) return;
-      const ms = msFromPointer(e);
+      let ms = msFromPointer(e);
+      // Olay şeridine tıklanırsa olayın başından 2 sn önce oynatılır.
+      const hit = eventAt(ms, e.clientY - canvas.getBoundingClientRect().top);
+      if (hit) ms = hit.startMs - 2_000;
       state.dragMs = null;
       state.hoverMs = null;
       seekTo(ms);
@@ -565,6 +703,8 @@
       if (now - lastFrame < 100) return;
       lastFrame = now;
       const ms = currentPlayhead();
+      ensureDetections(ms);
+      drawBoxes(ms);
       if (ms == null) return;
       state.playheadMs = ms;
       $("clock-time").textContent = timeFmt.format(ms);
@@ -598,9 +738,11 @@
         for (const video of [state.active, state.standby]) { video.defaultPlaybackRate = state.rate; video.playbackRate = state.rate; }
       });
     }
+    $("boxes-toggle").addEventListener("click", () => setShowBoxes(!state.showBoxes));
     document.addEventListener("keydown", (e) => {
       if (e.target.closest("input, select, button")) return;
       if (e.key === " ") { e.preventDefault(); togglePlay(); }
+      else if (e.key === "k" || e.key === "K") setShowBoxes(!state.showBoxes);
       else if (e.key === "ArrowLeft") $("back").click();
       else if (e.key === "ArrowRight") $("forward").click();
     });
@@ -617,6 +759,7 @@
       if (ms == null) { showError("Geçerli bir tarih ve saat girin."); return; }
       state.wantPlay = true;
       state.timeline = null;
+      state.lastDetectionLoad = 0;
       updateUrl(ms);
       fillExport(ms);
       playAt(ms);
@@ -628,6 +771,8 @@
     });
     $("camera").addEventListener("change", () => {
       state.camera = $("camera").value;
+      state.detections = null;
+      state.events = null;
       const ms = currentPlayhead() ?? fromLocalInput($("time").value);
       if (ms != null) $("time").value = toLocalInput(ms);
       go();
@@ -684,16 +829,15 @@
       try {
         const [config, cameras] = await Promise.all([api("/api/playback/config"), api("/api/playback/cameras")]);
         state.config = config;
-        $("live-link").href = config.publicLiveUrl;
         const select = $("camera");
         for (const camera of cameras) select.add(new Option(`${camera.name} (${camera.id})`, camera.id));
-        if (cameras.length === 0) { setOverlay("Yapılandırılmış kamera yok."); return; }
-
-        // Derin bağlantı: /?camera=cam1&time=2026-10-30T10:15:00Z
+        // Derin bağlantı: /playback.html?camera=cam1&time=2026-10-30T10:15:00Z
         const params = new URLSearchParams(location.search);
         const requested = params.get("camera");
-        if (requested && cameras.some((c) => c.id === requested)) select.value = requested;
-        else if (requested) showError(`'${requested}' adlı kamera bulunamadı.`);
+        // Listede olmayan (ör. silinmiş) kameranın kayıtları diskte kalmış olabilir: seçenek olarak eklenir, sunucu karar verir.
+        if (requested && !cameras.some((c) => c.id === requested)) select.add(new Option(`${requested} (listede yok)`, requested));
+        if (requested) select.value = requested;
+        if (select.options.length === 0) { setOverlay("Kaydı olan kamera yok."); return; }
         state.camera = select.value;
         const requestedTime = Date.parse(params.get("time") ?? "");
         const start = Number.isFinite(requestedTime) ? requestedTime : Date.now() - 2 * MINUTE;

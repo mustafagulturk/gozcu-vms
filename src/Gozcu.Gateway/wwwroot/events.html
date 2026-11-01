@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gözcü VMS · Olay Arama</title>
+  <link rel="stylesheet" href="/panel.css">
+  <style>
+    main { padding: 24px; display: grid; gap: 16px; max-width: 1400px; margin: 0 auto; }
+    .filters { padding: 12px 16px; display: grid; gap: 12px; }
+    .filters .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+    .filters fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 4px; min-width: 0; }
+    .filters legend { padding: 0; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .checks { display: flex; flex-wrap: wrap; gap: 6px; }
+    .check { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px;
+      font-size: 13px; color: var(--text); cursor: pointer; background: var(--bg); user-select: none; }
+    .check:has(input:checked) { border-color: var(--connecting); background: #16273a; }
+    .check input { margin: 0; }
+    .range { display: flex; align-items: center; gap: 8px; }
+    .range input[type="range"] { width: 140px; }
+    .range output { font-size: 14px; color: var(--text); font-variant-numeric: tabular-nums; min-width: 3.5em; }
+    input[type="number"] { width: 90px; }
+    .custom-range { display: flex; flex-wrap: wrap; gap: 12px; }
+    .status { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; font-size: 14px; }
+    .results { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+    .event { display: grid; grid-template-rows: auto 1fr; color: var(--text); background: var(--panel); border-radius: 8px; overflow: hidden;
+      border: 1px solid transparent; }
+    .event:hover { text-decoration: none; border-color: var(--connecting); }
+    .event .thumb { position: relative; aspect-ratio: 16 / 9; background: #000; }
+    .event .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .event .thumb .none { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; color: var(--muted); }
+    .event .thumb .tag { position: absolute; left: 8px; top: 8px; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 700; color: #0f1419; }
+    .event .thumb .tag.Person { background: var(--person); }
+    .event .thumb .tag.Vehicle { background: var(--vehicle); }
+    .event .thumb .duration { position: absolute; right: 8px; bottom: 8px; padding: 2px 6px; border-radius: 4px; font-size: 12px;
+      background: rgba(15, 20, 25, .85); font-variant-numeric: tabular-nums; }
+    .event .info { padding: 10px 12px; display: grid; gap: 4px; font-size: 13px; }
+    .event .when { font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; }
+    .event .facts { display: flex; flex-wrap: wrap; gap: 2px 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .event .facts b { color: var(--text); font-weight: 600; }
+    .ongoing { color: var(--online); font-weight: 600; }
+    .more { display: flex; justify-content: center; }
+    .empty { padding: 24px 16px; text-align: center; }
+    @media (max-width: 640px) {
+      main { padding: 12px 0; gap: 12px; }
+      .status, .results, .more, main > .error { padding: 0 16px; }
+      .results { gap: 12px; }
+      .filters .row > label, .custom-range label { flex: 1 1 140px; }
+      .filters select, .custom-range input { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar" data-page="events"></header>
+  <main>
+    <form class="panel filters" id="filters" autocomplete="off">
+      <fieldset>
+        <legend>Kameralar <span class="muted">(hiçbiri seçili değilse tümü)</span></legend>
+        <div class="checks" id="cameras"><span class="muted">Yükleniyor…</span></div>
+      </fieldset>
+      <div class="row">
+        <label>Kategori
+          <select id="category">
+            <option value="">Tümü</option>
+            <option value="Person">İnsan</option>
+            <option value="Vehicle">Araç</option>
+          </select>
+        </label>
+        <fieldset>
+          <legend>Zaman aralığı</legend>
+          <span class="group" id="presets">
+            <button type="button" data-hours="1">1 sa</button>
+            <button type="button" data-hours="6">6 sa</button>
+            <button type="button" data-hours="24" class="on">24 sa</button>
+            <button type="button" data-hours="168">7 gün</button>
+            <button type="button" data-hours="custom">Özel</button>
+          </span>
+        </fieldset>
+        <label>En düşük güven
+          <span class="range"><input id="confidence" type="range" min="0" max="95" step="5" value="0"><output id="confidence-out">%0</output></span>
+        </label>
+        <label>En kısa süre (sn) <input id="duration" type="number" min="0" step="1" value="0" inputmode="numeric"></label>
+      </div>
+      <div class="custom-range" id="custom-range" hidden>
+        <label>Başlangıç <input id="from" type="datetime-local" step="1"></label>
+        <label>Bitiş <input id="to" type="datetime-local" step="1"></label>
+        <label>&nbsp;<button type="submit" class="primary">Ara</button></label>
+      </div>
+    </form>
+    <div class="error" id="error"></div>
+    <div class="status"><span id="summary" class="muted"></span><span class="legend"><span><i style="background: var(--person)"></i>İnsan</span><span><i style="background: var(--vehicle)"></i>Araç</span><span>Karta tıklayınca kayıt o andan oynatılır</span></span></div>
+    <section class="results" id="results"></section>
+    <div class="more"><button id="more" hidden>Daha fazla yükle</button></div>
+  </main>
+
+  <script src="/panel.js"></script>
+  <script>
+    "use strict";
+    const { $, api, iso, toLocalInput, fromLocalInput, formatDuration, pct, categoryLabels, dateTimeFormat, playbackLink } = Gozcu;
+    const PAGE_SIZE = 48, HOUR = 3_600_000;
+    const state = { hours: 24, cursor: null, generation: 0, cameraNames: new Map(), total: 0 };
+
+    // ---- Filtreler ----
+    function selectedCameras() {
+      return [...document.querySelectorAll("#cameras input:checked")].map((i) => i.value);
+    }
+
+    function range() {
+      if (state.hours === "custom") return { from: fromLocalInput($("from").value), to: fromLocalInput($("to").value) };
+      const to = Date.now();
+      return { from: to - state.hours * HOUR, to: null };
+    }
+
+    function buildQuery(cursor) {
+      const query = new URLSearchParams();
+      for (const id of selectedCameras()) query.append("cameraId", id);
+      if ($("category").value) query.set("category", $("category").value);
+      const { from, to } = range();
+      if (from != null) query.set("from", iso(from));
+      if (to != null) query.set("to", iso(to));
+      const confidence = Number($("confidence").value) / 100;
+      if (confidence > 0) query.set("minConfidence", String(confidence));
+      const duration = Number($("duration").value);
+      if (duration > 0) query.set("minDurationSeconds", String(duration));
+      query.set("limit", String(PAGE_SIZE));
+      if (cursor) query.set("cursor", cursor);
+      return query;
+    }
+
+    // Filtreler adres çubuğunda tutulur: sayfa yenilenince ya da bağlantı paylaşılınca aynı arama açılır.
+    function saveToUrl() {
+      const params = new URLSearchParams();
+      for (const id of selectedCameras()) params.append("camera", id);
+      if ($("category").value) params.set("category", $("category").value);
+      if (state.hours === "custom") {
+        const { from, to } = range();
+        if (from != null) params.set("from", iso(from));
+        if (to != null) params.set("to", iso(to));
+      } else if (state.hours !== 24) {
+        params.set("hours", String(state.hours));
+      }
+      if (Number($("confidence").value) > 0) params.set("minConfidence", String(Number($("confidence").value) / 100));
+      if (Number($("duration").value) > 0) params.set("minDuration", $("duration").value);
+      const text = params.toString();
+      history.replaceState(null, "", location.pathname + (text ? `?${text}` : ""));
+    }
+
+    function loadFromUrl(params) {
+      const category = params.get("category");
+      if (category && [...$("category").options].some((o) => o.value === category)) $("category").value = category;
+      const from = Date.parse(params.get("from") ?? ""), to = Date.parse(params.get("to") ?? "");
+      if (Number.isFinite(from)) {
+        setPreset("custom");
+        $("from").value = toLocalInput(from);
+        $("to").value = Number.isFinite(to) ? toLocalInput(to) : "";
+      } else if (["1", "6", "24", "168"].includes(params.get("hours"))) {
+        setPreset(Number(params.get("hours")));
+      }
+      const confidence = Number(params.get("minConfidence"));
+      if (confidence > 0 && confidence < 1) $("confidence").value = String(Math.round(confidence * 20) * 5);
+      const duration = Number(params.get("minDuration"));
+      if (duration > 0) $("duration").value = String(Math.round(duration));
+      $("confidence-out").value = `%${$("confidence").value}`;
+    }
+
+    function setPreset(hours) {
+      state.hours = hours;
+      for (const b of $("presets").querySelectorAll("button")) {
+        const on = String(hours) === b.dataset.hours;
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-pressed", String(on));
+      }
+      $("custom-range").hidden = hours !== "custom";
+      if (hours === "custom" && !$("from").value) {
+        $("from").value = toLocalInput(Date.now() - 24 * HOUR);
+        $("to").value = toLocalInput(Date.now());
+      }
+    }
+
+    // ---- Sonuçlar ----
+    function thumbnailTime(e) {
+      // Olayın ilk saniyesi: nesne çoğunlukla görünür ve kayıt parçası büyük olasılıkla yazılmıştır.
+      const start = Date.parse(e.startedAt);
+      return start + Math.min(1_000, (e.durationSeconds * 1000) / 2);
+    }
+
+    function eventCard(e) {
+      const start = Date.parse(e.startedAt);
+      const card = document.createElement("a");
+      card.className = "event";
+      card.href = playbackLink(e.cameraId, start - 2_000);
+      card.title = "Kaydı bu olaydan itibaren oynat";
+      const thumb = document.createElement("div");
+      thumb.className = "thumb";
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.decoding = "async";
+      img.alt = `${categoryLabels[e.category] ?? e.category} olayı, ${e.cameraName}`;
+      img.src = `/api/playback/${encodeURIComponent(e.cameraId)}/frame.jpg?time=${iso(thumbnailTime(e))}&width=320`;
+      img.addEventListener("error", () => {
+        img.remove();
+        const none = document.createElement("span");
+        none.className = "none";
+        none.textContent = "Kayıt karesi yok";
+        thumb.prepend(none);
+      }, { once: true });
+      const tag = document.createElement("span");
+      tag.className = `tag ${e.category}`;
+      tag.textContent = categoryLabels[e.category] ?? e.category;
+      const duration = document.createElement("span");
+      duration.className = "duration";
+      duration.textContent = formatDuration(e.durationSeconds);
+      thumb.append(img, tag, duration);
+
+      const info = document.createElement("div");
+      info.className = "info";
+      const when = document.createElement("span");
+      when.className = "when";
+      when.textContent = dateTimeFormat.format(start);
+      const camera = document.createElement("span");
+      camera.className = "muted";
+      camera.textContent = e.cameraName && e.cameraName !== e.cameraId ? `${e.cameraName} (${e.cameraId})` : e.cameraId;
+      const facts = document.createElement("span");
+      facts.className = "facts";
+      facts.innerHTML = `<span>En fazla <b></b></span><span>Güven <b></b></span><span>Kare <b></b></span>`;
+      const [count, confidence, frames] = facts.querySelectorAll("b");
+      count.textContent = `${e.maxCount}`;
+      confidence.textContent = pct(e.peakConfidence);
+      frames.textContent = `${e.frameCount}`;
+      if (!e.endedAt) {
+        const ongoing = document.createElement("span");
+        ongoing.className = "ongoing";
+        ongoing.textContent = "sürüyor";
+        facts.appendChild(ongoing);
+      }
+      info.append(when, camera, facts);
+      card.append(thumb, info);
+      return card;
+    }
+
+    async function search({ append = false } = {}) {
+      const generation = append ? state.generation : ++state.generation;
+      const more = $("more");
+      $("error").textContent = "";
+      if (!append) {
+        const { from, to } = range();
+        if (state.hours === "custom" && (from == null || (to != null && to <= from))) {
+          $("error").textContent = from == null ? "Başlangıç zamanını girin." : "Bitiş zamanı başlangıçtan sonra olmalı.";
+          return;
+        }
+        saveToUrl();
+        state.cursor = null;
+        state.total = 0;
+        $("summary").textContent = "Aranıyor…";
+      }
+      more.disabled = true;
+      try {
+        const data = await api(`/api/analysis/events/search?${buildQuery(append ? state.cursor : null)}`);
+        if (generation !== state.generation) return;
+        const results = $("results");
+        if (!append) results.replaceChildren();
+        results.append(...data.items.map(eventCard));
+        state.total += data.items.length;
+        state.cursor = data.nextCursor;
+        more.hidden = !state.cursor;
+        if (state.total === 0) {
+          results.innerHTML = '<p class="muted empty">Bu filtrelerle olay bulunamadı.</p>';
+          $("summary").textContent = "";
+        } else {
+          $("summary").textContent = `${state.total}${state.cursor ? "+" : ""} olay · en yeni önce`;
+        }
+      } catch (e) {
+        if (generation !== state.generation) return;
+        $("error").textContent = `Arama yapılamadı: ${e.message}`;
+        if (!append) $("summary").textContent = "";
+      } finally {
+        if (generation === state.generation) more.disabled = false;
+      }
+    }
+
+    let debounce;
+    const searchSoon = () => { clearTimeout(debounce); debounce = setTimeout(() => search(), 300); };
+
+    // ---- Olaylar ----
+    $("filters").addEventListener("submit", (e) => { e.preventDefault(); search(); });
+    $("cameras").addEventListener("change", searchSoon);
+    $("category").addEventListener("change", () => search());
+    $("confidence").addEventListener("input", () => { $("confidence-out").value = `%${$("confidence").value}`; });
+    $("confidence").addEventListener("change", () => search());
+    $("duration").addEventListener("change", () => search());
+    for (const button of $("presets").querySelectorAll("button")) {
+      button.addEventListener("click", () => {
+        const hours = button.dataset.hours === "custom" ? "custom" : Number(button.dataset.hours);
+        setPreset(hours);
+        if (hours !== "custom") search();
+      });
+    }
+    $("more").addEventListener("click", () => search({ append: true }));
+
+    async function init() {
+      const params = new URLSearchParams(location.search);
+      loadFromUrl(params);
+      const wanted = new Set(params.getAll("camera"));
+      const box = $("cameras");
+      try {
+        const cameras = await api("/api/cameras");
+        box.replaceChildren();
+        // Silinmiş kameranın olayları da aranabilsin diye adresteki bilinmeyen kimlikler de seçenek olur.
+        const entries = cameras.map((c) => ({ id: c.id, name: c.name }));
+        for (const id of wanted) if (!entries.some((c) => c.id === id)) entries.push({ id, name: id });
+        for (const camera of entries) {
+          const label = document.createElement("label");
+          label.className = "check";
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.value = camera.id;
+          input.checked = wanted.has(camera.id);
+          label.append(input, document.createTextNode(camera.name && camera.name !== camera.id ? `${camera.name} (${camera.id})` : camera.id));
+          box.appendChild(label);
+        }
+        if (entries.length === 0) box.innerHTML = '<span class="muted">Tanımlı kamera yok.</span>';
+      } catch (e) {
+        box.innerHTML = "";
+        box.appendChild(Object.assign(document.createElement("span"), { className: "error", textContent: `Kamera listesi alınamadı: ${e.message}` }));
+      }
+      search();
+    }
+    init();
+  </script>
+</body>
+</html>
