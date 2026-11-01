@@ -1,4 +1,3 @@
-using Gozcu.Contracts.Cameras;
 using Gozcu.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
@@ -72,15 +71,22 @@ public sealed class PostgresIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Cameras_are_upserted()
+    public async Task Camera_ids_with_recordings_are_listed_once_and_sorted()
     {
-        var repository = new CameraRepository(_dataSource);
-        var camera = new CameraDefinition { Id = "cam1", Name = "Eski", RtspUrl = new Uri("rtsp://a/cam1") };
-        await repository.UpsertAsync(camera, CancellationToken.None);
-        camera.Name = "Yeni";
-        await repository.UpsertAsync(camera, CancellationToken.None);
+        var repository = new SegmentRepository(_dataSource);
+        var t0 = new DateTimeOffset(2026, 10, 28, 12, 0, 0, TimeSpan.Zero);
+        await repository.UpsertAsync("zcam", "/r/zcam/0.mp4", t0, t0.AddMinutes(1), 1, CancellationToken.None);
+        await repository.UpsertAsync("acam", "/r/acam/0.mp4", t0, t0.AddMinutes(1), 1, CancellationToken.None);
+        await repository.UpsertAsync("acam", "/r/acam/1.mp4", t0.AddMinutes(1), t0.AddMinutes(2), 1, CancellationToken.None);
+        await repository.UpsertAsync("gone", "/r/gone/0.mp4", t0, t0.AddMinutes(1), 1, CancellationToken.None);
+        await repository.MarkDeletedAsync(["/r/gone/0.mp4"], DateTimeOffset.UtcNow, CancellationToken.None);
 
-        await using var command = _dataSource.CreateCommand("SELECT name FROM cameras WHERE id = 'cam1'");
-        Assert.Equal("Yeni", await command.ExecuteScalarAsync());
+        var ids = (await repository.ListCameraIdsAsync(CancellationToken.None)).ToList();
+
+        Assert.Contains("acam", ids);
+        Assert.Contains("zcam", ids);
+        Assert.DoesNotContain("gone", ids);
+        Assert.Equal(ids.Distinct().Count(), ids.Count);
+        Assert.True(ids.IndexOf("acam") < ids.IndexOf("zcam"));
     }
 }

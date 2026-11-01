@@ -7,6 +7,8 @@ public static class EventRoutingKeys
 
     public const string CameraStatusChanged = "camera.status.changed";
 
+    public const string CameraCatalogChanged = "camera.catalog.changed";
+
     public const string RecordingSegmentCompleted = "recording.segment.completed";
 
     public const string DetectionEventStarted = "analysis.detection.started";

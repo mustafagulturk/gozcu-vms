@@ -1,3 +1,4 @@
+using Gozcu.Infrastructure.Cameras;
 using Gozcu.Infrastructure.Messaging;
 using Gozcu.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
@@ -30,6 +31,21 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<RabbitMqConnection>();
         services.AddSingleton<IEventPublisher, RabbitMqEventPublisher>();
         services.AddHealthChecks().AddCheck<RabbitMqHealthCheck>("rabbitmq", tags: ["ready"]);
+        return services;
+    }
+
+    /// <summary>
+    /// Veritabanındaki kamera listesinin bellekteki kopyasını (<see cref="ICameraCatalog"/>) ve onu güncel tutan arka plan
+    /// servisini kaydeder. <see cref="AddGozcuPersistence"/> ve <see cref="AddGozcuMessaging"/> gerektirir.
+    /// </summary>
+    public static IServiceCollection AddGozcuCameraCatalog(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<CameraCatalogOptions>(configuration.GetSection(CameraCatalogOptions.SectionName));
+        services.AddSingleton<CameraCatalog>();
+        services.AddSingleton<ICameraCatalog>(sp => sp.GetRequiredService<CameraCatalog>());
+        services.AddSingleton<RabbitMqEventSubscriber>();
+        services.AddSingleton<CameraCatalogRefresher>();
+        services.AddHostedService(sp => sp.GetRequiredService<CameraCatalogRefresher>());
         return services;
     }
 }
