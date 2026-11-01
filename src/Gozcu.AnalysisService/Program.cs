@@ -44,8 +44,6 @@ if (analysisErrors.Count > 0)
     throw new InvalidOperationException("Analiz yapılandırması hatalı:\n" + string.Join('\n', analysisErrors));
 }
 
-app.UseDefaultFiles();
-app.UseStaticFiles();
 
 app.MapAnalysisApi();
 

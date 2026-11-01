@@ -40,8 +40,6 @@ if (cameraErrors.Count > 0)
     throw new InvalidOperationException("Kamera yapılandırması hatalı:\n" + string.Join('\n', cameraErrors));
 }
 
-app.UseDefaultFiles();
-app.UseStaticFiles();
 
 var api = app.MapGroup("/api/recordings");
 api.MapGet("/status", (RecorderRegistry recorders, RecordingMetrics metrics) =>

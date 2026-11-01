@@ -29,8 +29,6 @@ if (cameraErrors.Count > 0)
     throw new InvalidOperationException("Kamera yapılandırması hatalı:\n" + string.Join('\n', cameraErrors));
 }
 
-app.UseDefaultFiles();
-app.UseStaticFiles();
 
 var cameras = app.MapGroup("/api/cameras");
 cameras.MapGet("/", (CameraRegistry registry) => registry.All.Select(t => t.Snapshot()));
