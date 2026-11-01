@@ -118,7 +118,7 @@ public sealed class SegmentRepository
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var ids = await connection.QueryAsync<string>(new CommandDefinition(
-            "SELECT DISTINCT camera_id FROM recording_segments WHERE deleted_at IS NULL ORDER BY camera_id COLLATE \"C\"",
+            "SELECT camera_id FROM recording_segments WHERE deleted_at IS NULL GROUP BY camera_id ORDER BY camera_id COLLATE \"C\"",
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return ids.ToList();
     }

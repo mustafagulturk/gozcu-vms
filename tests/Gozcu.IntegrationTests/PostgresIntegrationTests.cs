@@ -69,4 +69,24 @@ public sealed class PostgresIntegrationTests : IAsyncLifetime
         await repository.MarkDeletedAsync(["/r/cam3/a.mp4"], DateTimeOffset.UtcNow, CancellationToken.None);
         Assert.Empty(await repository.FindAsync("cam3", null, null, 10, CancellationToken.None));
     }
+
+    [Fact]
+    public async Task Camera_ids_with_recordings_are_listed_once_and_sorted()
+    {
+        var repository = new SegmentRepository(_dataSource);
+        var t0 = new DateTimeOffset(2026, 10, 28, 12, 0, 0, TimeSpan.Zero);
+        await repository.UpsertAsync("zcam", "/r/zcam/0.mp4", t0, t0.AddMinutes(1), 1, CancellationToken.None);
+        await repository.UpsertAsync("acam", "/r/acam/0.mp4", t0, t0.AddMinutes(1), 1, CancellationToken.None);
+        await repository.UpsertAsync("acam", "/r/acam/1.mp4", t0.AddMinutes(1), t0.AddMinutes(2), 1, CancellationToken.None);
+        await repository.UpsertAsync("gone", "/r/gone/0.mp4", t0, t0.AddMinutes(1), 1, CancellationToken.None);
+        await repository.MarkDeletedAsync(["/r/gone/0.mp4"], DateTimeOffset.UtcNow, CancellationToken.None);
+
+        var ids = (await repository.ListCameraIdsAsync(CancellationToken.None)).ToList();
+
+        Assert.Contains("acam", ids);
+        Assert.Contains("zcam", ids);
+        Assert.DoesNotContain("gone", ids);
+        Assert.Equal(ids.Distinct().Count(), ids.Count);
+        Assert.True(ids.IndexOf("acam") < ids.IndexOf("zcam"));
+    }
 }
