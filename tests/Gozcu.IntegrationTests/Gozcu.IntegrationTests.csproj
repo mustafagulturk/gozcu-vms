@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\Gozcu.RecordingService\Gozcu.RecordingService.csproj" Aliases="global,recording" />
     <ProjectReference Include="..\..\src\Gozcu.Vision\Gozcu.Vision.csproj" />
     <ProjectReference Include="..\..\src\Gozcu.AnalysisService\Gozcu.AnalysisService.csproj" Aliases="global,analysis" />
+    <ProjectReference Include="..\..\src\Gozcu.Gateway\Gozcu.Gateway.csproj" Aliases="global,gateway" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

@@ -4,18 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Gözcü VMS · Analiz</title>
+  <link rel="stylesheet" href="/panel.css">
   <style>
-    :root {
-      --bg: #0f1419; --panel: #182029; --line: #263140; --text: #e6edf3; --muted: #8b98a5;
-      --online: #2ea043; --degraded: #d29922; --offline: #f85149; --connecting: #58a6ff;
-      --person: #3fb950; --vehicle: #f0883e;
-    }
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-    header { padding: 16px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-    header h1 { margin: 0; font-size: 20px; }
-    header span { color: var(--muted); font-size: 14px; }
-    header .summary { margin-left: auto; }
     main { padding: 24px; display: grid; gap: 24px; max-width: 1400px; margin: 0 auto; }
     .grid { display: grid; gap: 24px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .camera, .panel { background: var(--panel); border-radius: 8px; overflow: hidden; min-width: 0; }
@@ -53,8 +43,9 @@
     .cat.Vehicle { color: var(--vehicle); }
     .ongoing { color: var(--online); font-weight: 600; }
     @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+    tbody tr[data-href] { cursor: pointer; }
+    tbody tr[data-href]:hover td { background: #1c2733; }
     @media (max-width: 600px) {
-      header { padding: 12px 16px; }
       main { padding: 12px 0; gap: 12px; }
       .grid { gap: 12px; }
       .camera, .panel { border-radius: 0; }
@@ -69,11 +60,7 @@
   </style>
 </head>
 <body>
-  <header>
-    <h1>Gözcü VMS</h1>
-    <span>Nesne analizi · Aşama 3</span>
-    <span class="summary" id="summary"></span>
-  </header>
+  <header class="topbar" data-page="analysis"><span class="summary" id="summary"></span></header>
   <main>
     <div id="detector-error" class="error"></div>
     <section class="grid" id="cameras"><p class="muted">Analiz durumu yükleniyor…</p></section>
@@ -93,6 +80,7 @@
     </section>
   </main>
 
+  <script src="/panel.js"></script>
   <script>
     "use strict";
     const $ = (id) => document.getElementById(id);
@@ -210,6 +198,10 @@
         }
         body.replaceChildren(...events.map(e => {
           const row = document.createElement("tr");
+          // Satıra tıklayınca kayıt, olayın başından 2 sn önce oynatılır.
+          row.dataset.href = Gozcu.playbackLink(e.cameraId, Date.parse(e.startedAt) - 2000);
+          row.title = "Kaydı bu olaydan itibaren oynat";
+          row.addEventListener("click", () => { location.href = row.dataset.href; });
           const cells = [
             ["Kategori", categoryLabels[e.category] ?? e.category, `cat ${e.category}`],
             ["Kamera", cameraNames.get(e.cameraId) ?? e.cameraId],
