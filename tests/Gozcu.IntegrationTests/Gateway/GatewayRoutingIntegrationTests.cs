@@ -30,7 +30,11 @@ public sealed class GatewayRoutingIntegrationTests : IAsyncLifetime
             (HttpContext context) => Results.Text($"streaming {context.Request.Method} {context.Request.Path}{context.Request.QueryString} if-match={context.Request.Headers.IfMatch}"));
         _backend.MapGet("/api/playback/{**rest}", (HttpContext context) => Results.Text($"recording {context.Request.Path}{context.Request.QueryString}"));
         _backend.MapGet("/api/analysis/{**rest}", (HttpContext context) => Results.Text($"analysis {context.Request.Path}{context.Request.QueryString}"));
-        _backend.MapGet("/{camera}/index.m3u8", (string camera) => Results.Text($"#EXTM3U\n# {camera}\n", "application/vnd.apple.mpegurl"));
+        // MediaMTX gibi: çerez yoksa önce kök göreli bir yönlendirme döner.
+        _backend.MapGet("/{camera}/index.m3u8", (string camera, HttpContext context) =>
+            context.Request.Query.ContainsKey("cookieCheck") || context.Request.Headers.Cookie.Count > 0
+                ? Results.Text($"#EXTM3U\n# {camera}\n", "application/vnd.apple.mpegurl")
+                : Results.Redirect($"/{camera}/index.m3u8?cookieCheck=1"));
         await _backend.StartAsync();
 
         // Port 0 ile açıldı; gerçek adres sunucu başladıktan sonra bilinir.
@@ -96,6 +100,15 @@ public sealed class GatewayRoutingIntegrationTests : IAsyncLifetime
         using var client = _gateway!.CreateClient();
         var body = await client.GetStringAsync(new Uri("/hls/cam2/index.m3u8", UriKind.Relative));
         Assert.Equal("#EXTM3U\n# cam2\n", body);
+    }
+
+    [Fact]
+    public async Task Rewrites_hls_redirect_location_with_prefix()
+    {
+        using var client = _gateway!.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var response = await client.GetAsync(new Uri("/hls/cam2/index.m3u8", UriKind.Relative));
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal("/hls/cam2/index.m3u8?cookieCheck=1", response.Headers.Location?.OriginalString);
     }
 
     [Theory]
