@@ -19,7 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Gozcu.Media\Gozcu.Media.csproj" />
     <ProjectReference Include="..\..\src\Gozcu.Infrastructure\Gozcu.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Gozcu.StreamingService\Gozcu.StreamingService.csproj" />
+    <ProjectReference Include="..\..\src\Gozcu.StreamingService\Gozcu.StreamingService.csproj" Aliases="global,streaming" />
     <!-- Üç servis de global ad alanında "Program" tanımlar; WebApplicationFactory testleri takma adla seçer. -->
     <ProjectReference Include="..\..\src\Gozcu.RecordingService\Gozcu.RecordingService.csproj" Aliases="global,recording" />
     <ProjectReference Include="..\..\src\Gozcu.Vision\Gozcu.Vision.csproj" />

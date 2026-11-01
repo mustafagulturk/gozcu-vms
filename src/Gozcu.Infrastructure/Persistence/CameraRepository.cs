@@ -48,6 +48,8 @@ public sealed class CameraRepository
     // "gozcu-cameras" anlamında sabit advisory lock anahtarı (şema betiklerininkinden farklı).
     private const long SeedLockKey = 0x676F7A6363616D;
 
+    private const string SeedMarker = "cameras-seeded";
+
     private const string Columns =
         "id AS Id, name AS Name, rtsp_url AS RtspUrl, enabled AS Enabled, version AS Version, created_at AS CreatedAt, updated_at AS UpdatedAt";
 
@@ -145,42 +147,42 @@ public sealed class CameraRepository
     }
 
     /// <summary>
-    /// Tablo boşsa verilen kameraları yazar ve yazılan sayıyı döner; doluysa hiçbir şey yapmaz ve 0 döner.
-    /// Birden fazla örnek aynı anda açılsa da advisory lock sayesinde tohumlama yalnızca bir kez yapılır.
+    /// Kameralar daha önce hiç tohumlanmadıysa ve tablo boşsa verilen kameraları yazar; yazılan sayıyı döner.
+    /// Tohumlama bir kez yapılır: tablo doluysa ya da daha önce tohumlandıysa hiçbir şey yazılmaz ve 0 döner; böylece
+    /// tüm kameralar API ile silinse bile yapılandırmadaki liste geri gelmez. Birden fazla örnek aynı anda açılsa da
+    /// advisory lock sayesinde karar tek bir işlemde verilir.
     /// </summary>
     public async Task<int> SeedIfEmptyAsync(IEnumerable<CameraDefinition> cameras, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(cameras);
         var items = cameras.ToList();
-        if (items.Count == 0)
-        {
-            return 0;
-        }
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await connection.ExecuteAsync(new CommandDefinition(
             "SELECT pg_advisory_xact_lock(@key)", new { key = SeedLockKey }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
 
-        var any = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
-            "SELECT EXISTS (SELECT 1 FROM cameras)", transaction: transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        if (any)
+        var skip = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "SELECT EXISTS (SELECT 1 FROM app_markers WHERE name = @SeedMarker) OR EXISTS (SELECT 1 FROM cameras)",
+            new { SeedMarker }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
+        if (!skip)
         {
-            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-            return 0;
+            foreach (var camera in items)
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    "INSERT INTO cameras (id, name, rtsp_url, enabled) VALUES (@Id, @Name, @RtspUrl, @Enabled)",
+                    Parameters(camera),
+                    transaction,
+                    cancellationToken: cancellationToken)).ConfigureAwait(false);
+            }
         }
 
-        foreach (var camera in items)
-        {
-            await connection.ExecuteAsync(new CommandDefinition(
-                "INSERT INTO cameras (id, name, rtsp_url, enabled) VALUES (@Id, @Name, @RtspUrl, @Enabled)",
-                Parameters(camera),
-                transaction,
-                cancellationToken: cancellationToken)).ConfigureAwait(false);
-        }
-
+        // Tohumlama kararı verildi (yazıldı ya da tablo zaten doluydu); bir daha denenmez.
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO app_markers (name) VALUES (@SeedMarker) ON CONFLICT (name) DO NOTHING",
+            new { SeedMarker }, transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return items.Count;
+        return skip ? 0 : items.Count;
     }
 
     private static object Parameters(CameraDefinition camera) => new

@@ -8,8 +8,8 @@ using Microsoft.Extensions.Options;
 namespace Gozcu.StreamingService.Cameras;
 
 /// <summary>
-/// İlk açılışta kamera tablosu boşsa yapılandırmadaki <c>Cameras</c> listesini yazar. Tablo doluysa yapılandırma
-/// yok sayılır: kameraların tek doğruluk kaynağı veritabanıdır ve yönetim API'siyle değiştirilir.
+/// İlk açılışta kamera tablosu boşsa yapılandırmadaki <c>Cameras</c> listesini yazar. Tablo doluysa ya da daha önce
+/// tohumlandıysa yapılandırma yok sayılır: kameraların tek doğruluk kaynağı veritabanıdır ve yönetim API'siyle değiştirilir.
 /// </summary>
 public sealed class CameraSeedService : BackgroundService
 {
@@ -40,12 +40,8 @@ public sealed class CameraSeedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Liste boş olsa da çağrılır: tohumlama kararı (ve işareti) ilk açılışta bir kez verilir.
         var items = _cameras.Value.Items;
-        if (items.Count == 0)
-        {
-            return;
-        }
-
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -54,8 +50,13 @@ public sealed class CameraSeedService : BackgroundService
                 var seeded = await _repository.SeedIfEmptyAsync(items, stoppingToken);
                 if (seeded == 0)
                 {
-                    _logger.LogInformation(
-                        "Kamera tablosu dolu; yapılandırmadaki {Count} kamera yok sayıldı (kameralar /api/cameras ile yönetilir)", items.Count);
+                    if (items.Count > 0)
+                    {
+                        _logger.LogInformation(
+                            "Kameralar daha önce tohumlanmış ya da tablo dolu; yapılandırmadaki {Count} kamera yok sayıldı (kameralar /api/cameras ile yönetilir)",
+                            items.Count);
+                    }
+
                     return;
                 }
 
