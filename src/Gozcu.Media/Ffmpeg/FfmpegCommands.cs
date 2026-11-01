@@ -109,6 +109,44 @@ public static class FfmpegCommands
         ];
     }
 
+    /// <summary>Tek kare JPEG komutunda izin verilen en küçük genişlik.</summary>
+    public const int MinJpegWidth = 16;
+
+    /// <summary>Tek kare JPEG komutunda izin verilen en büyük genişlik.</summary>
+    public const int MaxJpegWidth = 4096;
+
+    /// <summary>
+    /// Kayıt parçasından tek kare JPEG komutu (olay listesindeki küçük resimler). -ss girişten önce verildiği için ffmpeg
+    /// önce en yakın önceki anahtar kareye atlar, sonra o ana kadar çözer: hem hızlı hem kare doğruluğundadır.
+    /// Kare en-boy oranı korunarak <paramref name="width"/> genişliğine ölçeklenir (yükseklik çift sayıya yuvarlanır),
+    /// orta kalitede (-q:v 5) kodlanır ve stdout'a yazılır. Konum dosyanın sonundan sonraysa çıktı boş olur.
+    /// </summary>
+    public static IReadOnlyList<string> JpegFrame(string inputPath, TimeSpan offset, int width)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(inputPath);
+        ArgumentOutOfRangeException.ThrowIfLessThan(offset, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThan(width, MinJpegWidth);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(width, MaxJpegWidth);
+
+        return
+        [
+            "-hide_banner",
+            "-nostats",
+            "-nostdin",
+            "-loglevel", "error",
+            "-ss", offset.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture),
+            "-i", inputPath,
+            "-map", "0:v:0",
+            "-an",
+            "-frames:v", "1",
+            "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2",
+            "-q:v", "5",
+            "-c:v", "mjpeg",
+            "-f", "image2pipe",
+            "pipe:1",
+        ];
+    }
+
     /// <summary>ffmpeg'in parça dosya adlarındaki strftime zamanını UTC üretmesi için ortam değişkenleri.</summary>
     public static IReadOnlyDictionary<string, string> UtcEnvironment { get; } =
         new Dictionary<string, string> { ["TZ"] = "UTC" };

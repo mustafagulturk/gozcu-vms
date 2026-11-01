@@ -9,6 +9,9 @@ namespace Gozcu.Infrastructure.Persistence;
 /// <summary>Analiz servisinin tespit kareleri ve olayları.</summary>
 public sealed class DetectionRepository
 {
+    /// <summary><see cref="FindFramesAscendingAsync"/> için en fazla satır.</summary>
+    public const int MaxFramesAscending = 5000;
+
     private const string FrameColumns = "id, camera_id AS CameraId, captured_at AS CapturedAt, inference_ms AS InferenceMs, detections::text AS Detections";
 
     private const string EventColumns =
@@ -183,6 +186,113 @@ public sealed class DetectionRepository
             },
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         return rows.Select(r => r.ToEvent()).ToList();
+    }
+
+    /// <summary>
+    /// Olay araması: started_at DESC, id DESC sıralı, keyset sayfalamalı. OFFSET yerine son görülen (started_at, id)
+    /// çiftinden devam edildiği için derin sayfalar da dizin üzerinden aynı maliyetle okunur ve sayfalar arasında
+    /// yeni olay eklenmesi kaymaya (tekrar/atlama) yol açmaz. Yalnızca verilen ölçütler WHERE'e eklenir; böylece
+    /// planlayıcı her sorgu biçimi için uygun dizini (kategori+zaman ya da kamera+zaman) seçebilir.
+    /// </summary>
+    public async Task<EventSearchPage> SearchEventsAsync(EventSearchQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentOutOfRangeException.ThrowIfLessThan(query.Limit, 1);
+
+        var conditions = new List<string>();
+        var parameters = new DynamicParameters();
+        if (query.CameraIds.Count > 0)
+        {
+            conditions.Add("camera_id = ANY(@cameraIds)");
+            parameters.Add("cameraIds", query.CameraIds.Distinct(StringComparer.Ordinal).ToArray());
+        }
+
+        if (query.Category is { } category)
+        {
+            conditions.Add("category = @category");
+            parameters.Add("category", category.ToString());
+        }
+
+        if (query.From is { } from)
+        {
+            conditions.Add("(ended_at IS NULL OR ended_at >= @from)");
+            parameters.Add("from", from.ToUniversalTime());
+        }
+
+        if (query.To is { } to)
+        {
+            conditions.Add("started_at < @to");
+            parameters.Add("to", to.ToUniversalTime());
+        }
+
+        if (query.MinConfidence is { } minConfidence)
+        {
+            conditions.Add("peak_confidence >= @minConfidence");
+            parameters.Add("minConfidence", minConfidence);
+        }
+
+        if (query.MinDuration is { } minDuration && minDuration > TimeSpan.Zero)
+        {
+            // Süren olay (ended_at NULL) şimdiye kadar sürmüş sayılır.
+            conditions.Add("COALESCE(ended_at, @now) - started_at >= @minDuration");
+            parameters.Add("now", query.Now.ToUniversalTime());
+            parameters.Add("minDuration", minDuration);
+        }
+
+        if (query.After is { } after)
+        {
+            // Satır karşılaştırması: (a, b) < (x, y) ⇔ a < x OR (a = x AND b < y).
+            conditions.Add("(started_at, id) < (@afterStartedAt, @afterId)");
+            parameters.Add("afterStartedAt", after.StartedAt.ToUniversalTime());
+            parameters.Add("afterId", after.Id);
+        }
+
+        // Bir fazla satır okunur: varsa sonraki sayfa vardır.
+        parameters.Add("limit", query.Limit + 1);
+        var where = conditions.Count == 0 ? string.Empty : "WHERE " + string.Join("\n   AND ", conditions);
+        var sql = $"""
+            SELECT {EventColumns}
+              FROM detection_events
+             {where}
+             ORDER BY started_at DESC, id DESC
+             LIMIT @limit
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var rows = (await connection.QueryAsync<EventRow>(new CommandDefinition(sql, parameters, cancellationToken: cancellationToken))
+            .ConfigureAwait(false)).ToList();
+
+        var items = rows.Take(query.Limit).Select(r => r.ToEvent()).ToList();
+        EventSearchCursor? next = rows.Count > query.Limit ? new EventSearchCursor(items[^1].StartedAt, items[^1].Id) : null;
+        return new EventSearchPage(items, next);
+    }
+
+    /// <summary>
+    /// Bir kameranın [from, to) aralığındaki tespit karelerini ESKİDEN YENİYE döner (geri oynatmada kutu çizimi).
+    /// (camera_id, captured_at) dizini sırayı da sağlar.
+    /// </summary>
+    public async Task<IReadOnlyList<DetectionFrame>> FindFramesAscendingAsync(
+        string cameraId,
+        DateTimeOffset from,
+        DateTimeOffset to,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cameraId);
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await connection.QueryAsync<FrameRow>(new CommandDefinition(
+            $"""
+            SELECT {FrameColumns}
+              FROM detection_frames
+             WHERE camera_id = @cameraId
+               AND captured_at >= @from
+               AND captured_at < @to
+             ORDER BY captured_at, id
+             LIMIT @limit
+            """,
+            new { cameraId, from = from.ToUniversalTime(), to = to.ToUniversalTime(), limit = Math.Clamp(limit, 1, MaxFramesAscending) },
+            cancellationToken: cancellationToken)).ConfigureAwait(false);
+        return rows.Select(r => r.ToFrame()).ToList();
     }
 
     private static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
