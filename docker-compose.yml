@@ -1,6 +1,8 @@
 # Gözcü VMS – tüm sistemi tek komutla başlatır:  docker compose up --build
 name: gozcu-vms
 
+# Kamera tohumu: yalnızca akış servisi okur ve cameras tablosu BOŞSA bir kez yazar. Sonrasında kameralar
+# web panelinden (http://localhost:5000/cameras.html) ya da /api/cameras üzerinden yönetilir.
 x-cameras: &cameras
   Cameras__0__Id: cam1
   Cameras__0__Name: Otopark Girişi
@@ -77,10 +79,11 @@ services:
     environment:
       <<: [*cameras, *backend]
       RabbitMq__ClientName: gozcu-streaming
-      Streaming__PublicHlsBaseUrl: ${PUBLIC_HLS_BASE_URL:-http://localhost:8888/}
-      Streaming__PublicPlaybackUrl: ${PUBLIC_PLAYBACK_URL:-http://localhost:5081/}
+      # API yanıtlarındaki mutlak bağlantılar ağ geçidini gösterir; panel sayfaları göreli yol kullanır.
+      Streaming__PublicHlsBaseUrl: ${PUBLIC_URL:-http://localhost:5000}/hls/
+      Streaming__PublicPlaybackUrl: ${PUBLIC_URL:-http://localhost:5000}/playback.html
     ports:
-      - "5080:8080"   # Canlı izleme sayfası ve kamera durumu API'si
+      - "5080:8080"   # Kamera yönetimi ve durum API'si (tarayıcı ağ geçidini kullanır)
     depends_on:
       mediamtx:
         condition: service_started
@@ -99,17 +102,17 @@ services:
     restart: unless-stopped
     stop_grace_period: 20s   # ffmpeg'in son parçayı düzgün kapatması için
     environment:
-      <<: [*cameras, *backend]
+      <<: *backend
       RabbitMq__ClientName: gozcu-recording
       Recording__RootPath: /recordings
       Recording__SegmentSeconds: ${SEGMENT_SECONDS:-60}
       Recording__Retention__MaxTotalBytes: ${RETENTION_MAX_BYTES:-10737418240}
       Recording__Retention__MinFreeBytes: ${RETENTION_MIN_FREE_BYTES:-1073741824}
-      Recording__Playback__PublicLiveUrl: ${PUBLIC_LIVE_URL:-http://localhost:5080/}
+      Recording__Playback__PublicLiveUrl: ${PUBLIC_URL:-http://localhost:5000}/
     volumes:
       - recordings:/recordings
     ports:
-      - "5081:8080"   # Geri oynatma sayfası, kayıt durumu ve arama API'si
+      - "5081:8080"   # Kayıt durumu, arama ve geri oynatma API'si
     depends_on:
       mediamtx:
         condition: service_started
@@ -126,12 +129,12 @@ services:
     image: gozcu/analysis-service:dev
     restart: unless-stopped
     environment:
-      <<: [*cameras, *backend]
+      <<: *backend
       RabbitMq__ClientName: gozcu-analysis
       Analysis__FramesPerSecond: ${ANALYSIS_FPS:-2}
       Analysis__MaxConcurrentInferences: ${ANALYSIS_MAX_CONCURRENCY:-2}
     ports:
-      - "5082:8080"   # Analiz sayfası, tespit ve olay API'si
+      - "5082:8080"   # Analiz durumu, tespit ve olay API'si
     depends_on:
       mediamtx:
         condition: service_started
@@ -139,6 +142,28 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+
+  # Web paneli ve API ağ geçidi (YARP): tarayıcı yalnızca buraya konuşur → http://localhost:5000
+  gateway:
+    build:
+      context: .
+      dockerfile: deploy/service.Dockerfile
+      args:
+        SERVICE: Gozcu.Gateway
+    image: gozcu/gateway:dev
+    restart: unless-stopped
+    environment:
+      ReverseProxy__Clusters__streaming__Destinations__default__Address: http://streaming:8080/
+      ReverseProxy__Clusters__recording__Destinations__default__Address: http://recording:8080/
+      ReverseProxy__Clusters__analysis__Destinations__default__Address: http://analysis:8080/
+      ReverseProxy__Clusters__hls__Destinations__default__Address: http://mediamtx:8888/
+    ports:
+      - "5000:8080"   # Web paneli: canlı, kayıtlar, olaylar, kameralar, analiz
+    depends_on:
+      - streaming
+      - recording
+      - analysis
+      - mediamtx
 
 volumes:
   pgdata:
