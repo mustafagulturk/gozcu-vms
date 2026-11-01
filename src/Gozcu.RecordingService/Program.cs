@@ -44,6 +44,7 @@ api.MapGet("/segments", async (
     await repository.FindAsync(cameraId, from, to, limit ?? 100, cancellationToken));
 
 app.MapPlaybackApi();
+app.MapPlaybackFrameApi();
 app.MapReconciliationApi();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });

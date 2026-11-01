@@ -40,6 +40,7 @@ if (analysisErrors.Count > 0)
 
 
 app.MapAnalysisApi();
+app.MapEventSearchApi();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c.Tags.Contains("ready") });

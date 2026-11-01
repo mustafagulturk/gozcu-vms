@@ -1,6 +1,7 @@
 using System.Globalization;
 using Gozcu.Infrastructure.Cameras;
 using Gozcu.Infrastructure.Persistence;
+using Gozcu.Media.Processes;
 using Microsoft.Extensions.Options;
 
 namespace Gozcu.RecordingService.Playback;
@@ -24,6 +25,8 @@ public static class PlaybackEndpoints
     public static IServiceCollection AddPlayback(this IServiceCollection services)
     {
         services.AddSingleton<ClipExporter>();
+        services.AddSingleton<IProcessOutputReader, ProcessOutputReader>();
+        services.AddSingleton<FrameExtractor>();
         services.AddSingleton(sp => new SegmentFileResolver(sp.GetRequiredService<IOptions<RecordingOptions>>().Value.RootPath));
         return services;
     }
