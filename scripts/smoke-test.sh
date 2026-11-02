@@ -5,11 +5,14 @@
 #   3) kayıt parçası yeniden kodlanmamış, oynatılabilir bir H.264 MP4'tür
 #   4) geri oynatma: zaman çizelgesi, parça akışı (HTTP Range) ve yeniden kodlamasız klip dışa aktarma
 #   5) kayıt servisi SIGKILL ile öldürülüp yeniden başlatıldığında açılış uzlaştırması tamamlanır
+#   6) analiz servisi her kamerayı analiz eder; örnek videolarda insan ve araç olayları oluşur
+#      (samples/videos boşsa kameralar test deseni yayınlar ve tespit adımları atlanır)
 # Kullanım: SEGMENT_SECONDS=10 docker compose up -d && ./scripts/smoke-test.sh
 set -euo pipefail
 
 STREAMING_URL="${STREAMING_URL:-http://localhost:5080}"
 RECORDING_URL="${RECORDING_URL:-http://localhost:5081}"
+ANALYSIS_URL="${ANALYSIS_URL:-http://localhost:5082}"
 HLS_BASE_URL="${HLS_BASE_URL:-http://localhost:8888}"
 CAMERAS="${CAMERAS:-cam1 cam2 cam3 cam4}"
 TIMEOUT="${TIMEOUT:-180}"
@@ -81,8 +84,31 @@ echo "  uzlaştırma raporu: $(curl -fsS "$RECORDING_URL/api/recordings/reconcil
 wait_for "Yeniden başlatmadan sonra kayıt sürüyor" \
   "curl -fsS $RECORDING_URL/api/recordings/status | grep -q '\"segmentsWritten\":[1-9]'"
 
+echo "🧠 Nesne tespiti"
+wait_for "Analiz servisi hazır (model yüklendi)" "curl -fsS $ANALYSIS_URL/health/ready"
+curl -fsS "$ANALYSIS_URL/" | grep -q "<title>" && echo "  analiz sayfası ✅"
+for cam in $CAMERAS; do
+  wait_for "$cam analiz ediliyor" \
+    "curl -fsS $ANALYSIS_URL/api/analysis/status | grep -q '\"cameraId\":\"$cam\"[^]]*\"state\":\"Analyzing\"'"
+done
+snapshot=$(mktemp --suffix=.bmp)
+curl -fsS -o "$snapshot" "$ANALYSIS_URL/api/analysis/cameras/cam1/snapshot.bmp"
+[ "$(head -c 2 "$snapshot")" = "BM" ] && echo "  son kare görüntüsü (BMP, $(stat -c %s "$snapshot") bayt) ✅"
+rm -f "$snapshot"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if ls "$REPO_ROOT"/samples/videos/*.mp4 >/dev/null 2>&1; then
+  wait_for "İnsan olayı oluştu" "curl -fsS '$ANALYSIS_URL/api/analysis/events?category=Person&limit=1' | grep -q '\"category\":\"Person\"'"
+  wait_for "Araç olayı oluştu" "curl -fsS '$ANALYSIS_URL/api/analysis/events?category=Vehicle&limit=1' | grep -q '\"category\":\"Vehicle\"'"
+  wait_for "Tespit kareleri veritabanında" "curl -fsS '$ANALYSIS_URL/api/analysis/detections?cameraId=cam3&limit=1' | grep -q '\"label\":\"person\"'"
+  wait_for "Biten olay RabbitMQ'ya yayınlandı" \
+    "curl -fsS $ANALYSIS_URL/api/analysis/status | grep -Eq '\"eventsPublished\":[1-9]'"
+else
+  echo "  ⚠️  samples/videos boş: test desenlerinde nesne yok, tespit adımları atlandı (./scripts/download-sample-videos.sh)"
+fi
+
 echo
 echo "Kamera durumu:   $(curl -fsS "$STREAMING_URL/api/cameras")"
 echo "Kayıt durumu:    $(curl -fsS "$RECORDING_URL/api/recordings/status")"
+echo "Son olaylar:     $(curl -fsS "$ANALYSIS_URL/api/analysis/events?limit=3")"
 echo
 echo "✅ Duman testi başarılı"

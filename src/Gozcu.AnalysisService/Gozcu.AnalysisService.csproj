@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\Gozcu.Contracts\Gozcu.Contracts.csproj" />
+    <ProjectReference Include="..\Gozcu.Media\Gozcu.Media.csproj" />
+    <ProjectReference Include="..\Gozcu.Infrastructure\Gozcu.Infrastructure.csproj" />
+    <ProjectReference Include="..\Gozcu.Vision\Gozcu.Vision.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Gozcu.UnitTests" />
+    <InternalsVisibleTo Include="Gozcu.IntegrationTests" />
+  </ItemGroup>
+</Project>

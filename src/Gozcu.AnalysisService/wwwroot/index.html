@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gözcü VMS · Analiz</title>
+  <style>
+    :root {
+      --bg: #0f1419; --panel: #182029; --line: #263140; --text: #e6edf3; --muted: #8b98a5;
+      --online: #2ea043; --degraded: #d29922; --offline: #f85149; --connecting: #58a6ff;
+      --person: #3fb950; --vehicle: #f0883e;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 16px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    header h1 { margin: 0; font-size: 20px; }
+    header span { color: var(--muted); font-size: 14px; }
+    header .summary { margin-left: auto; }
+    main { padding: 24px; display: grid; gap: 24px; max-width: 1400px; margin: 0 auto; }
+    .grid { display: grid; gap: 24px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .camera, .panel { background: var(--panel); border-radius: 8px; overflow: hidden; min-width: 0; }
+    .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+    .stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+    .overlay { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 8px 14px; border-radius: 6px;
+      background: rgba(15, 20, 25, .85); font-size: 14px; text-align: center; max-width: 90%; }
+    .overlay:empty { display: none; }
+    .meta { padding: 12px 16px; display: grid; gap: 8px; font-size: 14px; }
+    .title { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600; font-size: 16px; }
+    .title .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badge { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #0f1419; white-space: nowrap; }
+    .badge.Analyzing { background: var(--online); }
+    .badge.Connecting { background: var(--connecting); }
+    .badge.Reconnecting { background: var(--degraded); }
+    .badge.Stopped { background: var(--offline); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }
+    .chip { padding: 2px 8px; border-radius: 4px; font-size: 13px; border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+    .chip.Person { border-color: var(--person); color: var(--person); }
+    .chip.Vehicle { border-color: var(--vehicle); color: var(--vehicle); }
+    .counters { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .counters b { color: var(--text); font-weight: 600; }
+    .muted { color: var(--muted); }
+    .error { color: var(--offline); word-break: break-word; }
+    .error:empty { display: none; }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+    .panel h2 { margin: 0; padding: 12px 16px; font-size: 16px; border-bottom: 1px solid var(--line); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+    th, td { text-align: left; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    tr:last-child td { border-bottom: 0; }
+    .cat { font-weight: 600; }
+    .cat.Person { color: var(--person); }
+    .cat.Vehicle { color: var(--vehicle); }
+    .ongoing { color: var(--online); font-weight: 600; }
+    @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 600px) {
+      header { padding: 12px 16px; }
+      main { padding: 12px 0; gap: 12px; }
+      .grid { gap: 12px; }
+      .camera, .panel { border-radius: 0; }
+      main > .legend, main > .error, #cameras > p { padding: 0 16px; }
+      /* Dar ekranda tablo satırları kartlara dönüşür; sayfa yatay kaydırılmaz. */
+      thead { display: none; }
+      table, tbody, tr, td { display: block; }
+      tr { padding: 8px 16px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
+      td { padding: 0; border: 0; }
+      td::before { content: attr(data-label) ": "; color: var(--muted); font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Gözcü VMS</h1>
+    <span>Nesne analizi · Aşama 3</span>
+    <span class="summary" id="summary"></span>
+  </header>
+  <main>
+    <div id="detector-error" class="error"></div>
+    <section class="grid" id="cameras"><p class="muted">Analiz durumu yükleniyor…</p></section>
+    <div class="legend">
+      <span><i style="background: var(--person)"></i>İnsan</span>
+      <span><i style="background: var(--vehicle)"></i>Araç</span>
+      <span>Görüntü: analiz edilen son kare (model girişi, dolgusu kırpılmış)</span>
+    </div>
+    <section class="panel">
+      <h2>Son olaylar</h2>
+      <table>
+        <thead>
+          <tr><th>Kategori</th><th>Kamera</th><th>Başlangıç</th><th>Bitiş</th><th>En fazla</th><th>En yüksek güven</th></tr>
+        </thead>
+        <tbody id="events"><tr><td class="muted" colspan="6">Yükleniyor…</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    "use strict";
+    const $ = (id) => document.getElementById(id);
+    const stateLabels = { Connecting: "Bağlanıyor", Analyzing: "Analiz ediliyor", Reconnecting: "Yeniden bağlanıyor", Stopped: "Durdu" };
+    const categoryLabels = { Person: "İnsan", Vehicle: "Araç" };
+    const labelNames = { person: "insan", bicycle: "bisiklet", car: "otomobil", motorcycle: "motosiklet", bus: "otobüs", truck: "kamyon" };
+    const cameraNames = new Map();
+    const cards = new Map();
+    const timeFormat = new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const fmtTime = (iso) => iso ? timeFormat.format(new Date(iso)) : "";
+    const pct = (v) => `%${Math.round(v * 100)}`;
+
+    function ensureCard(cam) {
+      let card = cards.get(cam.cameraId);
+      if (card) return card;
+      const el = document.createElement("article");
+      el.className = "camera";
+      el.innerHTML = `
+        <div class="stage"><img alt=""><div class="overlay">Kare bekleniyor…</div></div>
+        <div class="meta">
+          <div class="title"><span class="name"></span><span class="badge"></span></div>
+          <div class="chips"></div>
+          <div class="counters"></div>
+          <div class="muted source"></div>
+          <div class="error"></div>
+        </div>`;
+      $("cameras").appendChild(el);
+      card = { el, img: el.querySelector("img"), overlay: el.querySelector(".overlay"), objectUrl: null, busy: false };
+      cards.set(cam.cameraId, card);
+      refreshFrame(cam.cameraId, card);
+      return card;
+    }
+
+    function renderStatus(cam) {
+      const { el } = ensureCard(cam);
+      el.querySelector(".name").textContent = `${cam.name} (${cam.cameraId})`;
+      const badge = el.querySelector(".badge");
+      badge.className = `badge ${cam.state}`;
+      badge.textContent = stateLabels[cam.state] ?? cam.state;
+      const ms = cam.lastInferenceMs != null ? `${cam.lastInferenceMs} ms (ort. ${cam.averageInferenceMs})` : "–";
+      el.querySelector(".counters").innerHTML =
+        `<span>Analiz <b>${cam.analysisFps.toFixed(1)}</b> fps</span>` +
+        `<span>Çıkarım <b>${ms}</b></span>` +
+        `<span>Atılan <b>${cam.framesDropped}</b></span>` +
+        `<span>Analiz edilen <b>${cam.framesAnalyzed}</b></span>` +
+        `<span>Açık olay <b>${cam.openEvents.length}</b></span>`;
+      el.querySelector(".source").textContent = cam.source
+        ? `Kaynak: ${cam.source.codec.toUpperCase()} ${cam.source.width}×${cam.source.height}` + (cam.source.framesPerSecond ? ` @ ${cam.source.framesPerSecond} fps` : "") + ` · yeniden bağlanma: ${cam.reconnectCount}`
+        : `Yeniden bağlanma: ${cam.reconnectCount}`;
+      el.querySelector(".error").textContent = cam.state === "Analyzing" ? "" : (cam.lastError ?? "");
+    }
+
+    async function refreshStatus() {
+      try {
+        const status = await (await fetch("/api/analysis/status")).json();
+        $("detector-error").textContent = status.detectorError ? `Model yüklenemedi: ${status.detectorError}` : "";
+        const model = status.model ? `${status.model.name} ${status.model.inputWidth}×${status.model.inputHeight}` : "model yok";
+        $("summary").textContent = `${model} · kamera başına ${status.framesPerSecond} fps · en fazla ${status.maxConcurrentInferences} eşzamanlı çıkarım`;
+        if (status.cameras.length === 0) {
+          $("cameras").innerHTML = '<p class="muted">Analiz edilen kamera yok.</p>';
+          return;
+        }
+        document.querySelector("#cameras > p")?.remove();
+        status.cameras.forEach(cam => { cameraNames.set(cam.cameraId, cam.name); renderStatus(cam); });
+      } catch (e) {
+        console.warn("Analiz durumu alınamadı", e);
+      }
+    }
+
+    // Anlık görüntü ve son tespitler: bir önceki istek bitmeden yenisi gönderilmez, böylece istekler birikmez.
+    async function refreshFrame(cameraId, card) {
+      if (card.busy) return;
+      card.busy = true;
+      const base = `/api/analysis/cameras/${encodeURIComponent(cameraId)}`;
+      try {
+        const [image, latest] = await Promise.all([
+          fetch(`${base}/snapshot.bmp?t=${Date.now()}`, { cache: "no-store" }),
+          fetch(`${base}/latest`, { cache: "no-store" }),
+        ]);
+        if (image.ok) {
+          const url = URL.createObjectURL(await image.blob());
+          card.img.src = url;
+          if (card.objectUrl) URL.revokeObjectURL(card.objectUrl);
+          card.objectUrl = url;
+          card.overlay.textContent = "";
+        } else {
+          card.overlay.textContent = "Henüz analiz edilmiş kare yok.";
+        }
+        const chips = card.el.querySelector(".chips");
+        if (latest.ok) {
+          const data = await latest.json();
+          chips.replaceChildren(...data.detections.map(d => {
+            const chip = document.createElement("span");
+            chip.className = `chip ${d.category}`;
+            chip.textContent = `${labelNames[d.label] ?? d.label} ${pct(d.confidence)}`;
+            return chip;
+          }));
+          if (data.detections.length === 0) chips.innerHTML = '<span class="muted">Tespit yok</span>';
+        }
+      } catch (e) {
+        console.warn("Kare alınamadı", e);
+      } finally {
+        card.busy = false;
+        setTimeout(() => refreshFrame(cameraId, card), 500);
+      }
+    }
+
+    async function refreshEvents() {
+      try {
+        const events = await (await fetch("/api/analysis/events?limit=20")).json();
+        const body = $("events");
+        if (events.length === 0) {
+          body.innerHTML = '<tr><td class="muted" colspan="6">Henüz olay yok.</td></tr>';
+          return;
+        }
+        body.replaceChildren(...events.map(e => {
+          const row = document.createElement("tr");
+          const cells = [
+            ["Kategori", categoryLabels[e.category] ?? e.category, `cat ${e.category}`],
+            ["Kamera", cameraNames.get(e.cameraId) ?? e.cameraId],
+            ["Başlangıç", fmtTime(e.startedAt)],
+            ["Bitiş", e.endedAt ? fmtTime(e.endedAt) : "sürüyor", e.endedAt ? "" : "ongoing"],
+            ["En fazla", `${e.maxCount} nesne`],
+            ["En yüksek güven", pct(e.peakConfidence)],
+          ];
+          for (const [label, text, cls] of cells) {
+            const td = document.createElement("td");
+            td.dataset.label = label;
+            td.textContent = text;
+            if (cls) td.className = cls;
+            row.appendChild(td);
+          }
+          return row;
+        }));
+      } catch (e) {
+        console.warn("Olaylar alınamadı", e);
+      }
+    }
+
+    refreshStatus();
+    refreshEvents();
+    setInterval(refreshStatus, 1000);
+    setInterval(refreshEvents, 2000);
+  </script>
+</body>
+</html>

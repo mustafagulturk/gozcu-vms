@@ -1,0 +1,3 @@
+# Model dosyaları büyüktür ve scripts/download-model.sh ile indirilir; depoya eklenmez.
+*.onnx
+*.part

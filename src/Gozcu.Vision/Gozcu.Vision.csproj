@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nesne tespiti: ön işleme, ONNX Runtime ile YOLOX çıkarımı, kod çözme ve NMS. ASP.NET'e bağımlı değildir. -->
+  <PropertyGroup>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Gozcu.Contracts\Gozcu.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Gozcu.UnitTests" />
+    <InternalsVisibleTo Include="Gozcu.IntegrationTests" />
+  </ItemGroup>
+</Project>
