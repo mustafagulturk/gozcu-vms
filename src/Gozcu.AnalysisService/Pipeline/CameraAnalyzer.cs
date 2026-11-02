@@ -68,6 +68,7 @@ public sealed class CameraAnalyzer
     private StreamInfo? _streamInfo;
     private LetterboxGeometry? _geometry;
     private long _framesReceived;
+    private double _lastCaptureDelayMs;
     private long _framesDropped;
     private long _framesAnalyzed;
     private long _inferenceErrors;
@@ -223,7 +224,8 @@ public sealed class CameraAnalyzer
                 _openEvents.Select(e => new OpenEventStatus(e.Id, e.Category, e.StartedAt, e.ObjectCount, e.PeakConfidence)).ToList(),
                 Math.Max(0, _runs - 1),
                 _lastError,
-                _nextRetryAt);
+                _nextRetryAt,
+                Volatile.Read(ref _lastCaptureDelayMs));
         }
     }
 
@@ -377,10 +379,12 @@ public sealed class CameraAnalyzer
         }
     }
 
-    private void OnFrame(byte[] data, ChannelWriter<CapturedFrame> frames)
+    private void OnFrame(byte[] data, ChannelWriter<CapturedFrame> frames, DateTimeOffset? sourceCapturedAt)
     {
-        // Yakalama zamanı: kare borudan tamamen okunduğu an (bkz. CapturedFrame.CapturedAt gecikme notu).
-        var capturedAt = _time.GetUtcNow();
+        // Yakalama zamanı: kaynak karenin kameradan geliş anını biliyorsa o (bkz. FrameClock), yoksa okunduğu an.
+        var now = _time.GetUtcNow();
+        var capturedAt = sourceCapturedAt is { } at && at <= now ? at : now;
+        Volatile.Write(ref _lastCaptureDelayMs, Math.Round((now - capturedAt).TotalMilliseconds, 1));
         LetterboxGeometry geometry;
         lock (_lock)
         {
@@ -434,7 +438,9 @@ public sealed class CameraAnalyzer
 
         public void OnErrorLine(string line) => analyzer.OnErrorLine(line);
 
-        public void OnFrame(byte[] frame) => analyzer.OnFrame(frame, frames);
+        public void OnFrame(byte[] frame) => analyzer.OnFrame(frame, frames, null);
+
+        public void OnFrame(byte[] frame, DateTimeOffset capturedAt) => analyzer.OnFrame(frame, frames, capturedAt);
     }
 }
 
@@ -446,6 +452,10 @@ public sealed record OpenEventStatus(Guid Id, ObjectCategory Category, DateTimeO
 /// <param name="AnalysisFps">Son 10 saniyedeki etkin analiz hızı.</param>
 /// <param name="LastFrameDetections">Son analiz edilen karedeki tespit sayısı.</param>
 /// <param name="ReconnectCount">Kaynağın yeniden başlatılma sayısı.</param>
+/// <param name="CaptureDelayMs">
+/// Son karenin kameradan gelişi ile analiz servisine ulaşması arasındaki süre (kod çözme hattı gecikmesi). Kare zaman
+/// damgası bu kadar geriye alınır; böylece kayıtla aynı saati kullanır.
+/// </param>
 public sealed record CameraAnalysisStatus(
     string CameraId,
     string Name,
@@ -464,4 +474,5 @@ public sealed record CameraAnalysisStatus(
     IReadOnlyList<OpenEventStatus> OpenEvents,
     int ReconnectCount,
     string? LastError,
-    DateTimeOffset? NextRetryAt);
+    DateTimeOffset? NextRetryAt,
+    double CaptureDelayMs = 0);

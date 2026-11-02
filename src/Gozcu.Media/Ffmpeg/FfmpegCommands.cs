@@ -75,7 +75,9 @@ public static class FfmpegCommands
     /// korunarak <paramref name="width"/>×<paramref name="height"/> içine sol üst köşeye ölçeklenir, kalan alan gri (114)
     /// ile doldurulur (letterbox) ve kareler başlıksız BGR24 olarak stdout'a yazılır: her kare tam olarak W×H×3 bayttır.
     /// Giriş akışının çözünürlüğü stderr'deki ilk "Stream #0:0: Video: ..." satırından okunur (loglevel info);
-    /// sonraki "Video: rawvideo" satırı çıkış akışıdır.
+    /// sonraki "Video: rawvideo" satırı çıkış akışıdır. Aynı süreç paket zaman damgalarını (framecrc) ve çıkan
+    /// karelerin PTS'ini (showinfo) stderr'e yazar; <see cref="Frames.FrameClock"/> bunlarla her karenin kameradan
+    /// geliş anını hesaplar.
     /// </summary>
     public static IReadOnlyList<string> AnalysisFrames(
         Uri rtspUrl,
@@ -90,7 +92,10 @@ public static class FfmpegCommands
         ArgumentOutOfRangeException.ThrowIfLessThan(width, 16);
         ArgumentOutOfRangeException.ThrowIfLessThan(height, 16);
 
-        var fps = framesPerSecond.ToString("0.###", CultureInfo.InvariantCulture);
+        // fps süzgeci yerine select: fps süzgeci her yarım saniyelik dilimin son karesini dilimin başlangıç zamanıyla
+        // damgalar (0,25 sn'ye varan kayma) ve dilim bitene kadar bekler. select gerçek kareleri gerçek PTS'leriyle,
+        // beklemeden geçirir. Eşik bir karelik payla aralığın biraz altında tutulur ki 25 fps'te 2 fps tutturulsun.
+        var interval = (0.95 / framesPerSecond).ToString("0.####", CultureInfo.InvariantCulture);
         var w = width.ToString(CultureInfo.InvariantCulture);
         var h = height.ToString(CultureInfo.InvariantCulture);
         return
@@ -99,10 +104,20 @@ public static class FfmpegCommands
             "-nostats",
             "-nostdin",
             "-loglevel", "info",
+            // Dilim tabanlı çok iş parçacıklı çözme: kare tabanlı çözme iş parçacığı sayısı kadar kare geciktirir.
+            "-thread_type", "slice",
             .. RtspInput(rtspUrl, socketTimeout),
+            // 1. çıkış: kodlanmış paketlerin zaman damgaları stderr'e (framecrc). Kare zamanını gerçek geliş anına
+            // bağlamak için kullanılır (bkz. FrameClock). Kod çözme yoktur.
+            "-map", "0:v:0",
+            "-c", "copy",
+            "-f", "framecrc",
+            "pipe:2",
+            // 2. çıkış: analiz kareleri stdout'a; showinfo her karenin PTS'ini stderr'e yazar.
             "-map", "0:v:0",
             "-an",
-            "-vf", $"fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:0:0:color=0x727272",
+            "-vf", $"select=isnan(prev_selected_t)+gte(t-prev_selected_t\\,{interval}),scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:0:0:color=0x727272,showinfo",
+            "-fps_mode", "passthrough",
             "-pix_fmt", "bgr24",
             "-f", "rawvideo",
             "pipe:1",
