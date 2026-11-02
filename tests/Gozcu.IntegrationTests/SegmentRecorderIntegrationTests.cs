@@ -57,7 +57,12 @@ public sealed class SegmentRecorderIntegrationTests(MediaMtxFixture mediaMtx) : 
         {
             var probe = await Ffprobe.ProbeAsync(segment.FilePath);
             Assert.InRange(probe.DurationSeconds, 1.5, 2.5);
-            Assert.Equal(0, segment.StartedAt.Second % 2);
+
+            // Dosya adındaki saat sınıra hizalıdır; StartedAt ise karenin geliş saatinden (bitiş anı − süre) gelir,
+            // bu yüzden adın biraz öncesine ya da sonrasına düşebilir.
+            Assert.True(SegmentFileName.TryParse(Path.GetFileName(segment.FilePath), out _, out var nameStart));
+            Assert.Equal(0, nameStart.Second % 2);
+            Assert.InRange(segment.StartedAt, nameStart - TimeSpan.FromMilliseconds(500), nameStart + CameraRecorder.MaxArrivalClockSkew);
         }
 
         // Dosya adları zamana göre sıralı ve benzersizdir.
