@@ -6,6 +6,11 @@ public sealed class StreamingOptions
 
     public string FfmpegPath { get; set; } = "ffmpeg";
 
+    public string FfprobePath { get; set; } = "ffprobe";
+
+    /// <summary>Kamera bağlantı testinin (POST /api/cameras/probe) en uzun süresi.</summary>
+    public TimeSpan ProbeTimeout { get; set; } = TimeSpan.FromSeconds(8);
+
     /// <summary>Tarayıcının canlı HLS akışını çekeceği MediaMTX adresi (ör. http://localhost:8888).</summary>
     public Uri PublicHlsBaseUrl { get; set; } = new("http://localhost:8888");
 

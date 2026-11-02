@@ -8,9 +8,9 @@ namespace Gozcu.AnalysisService.Pipeline;
 /// </summary>
 /// <param name="Data">Model boyutunda, letterbox uygulanmış BGR24 kare.</param>
 /// <param name="CapturedAt">
-/// Karenin borudan tamamen okunduğu UTC duvar saati. Kameranın çekim anı değildir: kamera kodlaması, ağ, RTSP
-/// tamponu ve ffmpeg'in kod çözme/seyreltme gecikmesi kadar (tipik olarak birkaç yüz ms, bağlantı ilk kurulurken
-/// daha fazla) geç kalır. Kayıt parçalarıyla eşleştirirken bu sapma göz önünde tutulmalıdır.
+/// Karenin kameradan sunucuya geliş anı (UTC). ffmpeg'in paket zaman damgalarından hesaplanır (bkz.
+/// <see cref="Gozcu.Media.Frames.FrameClock"/>); kod çözme gecikmesini içermez ve kayıt parçalarının başlangıcıyla
+/// aynı saattedir. Hesaplanamazsa karenin borudan okunduğu an kullanılır.
 /// </param>
 /// <param name="Geometry">Kutuları kaynak görüntüye geri eşlemek için letterbox geometrisi.</param>
 public sealed record CapturedFrame(byte[] Data, DateTimeOffset CapturedAt, LetterboxGeometry Geometry);

@@ -1,3 +1,4 @@
+using Gozcu.Contracts.Cameras;
 using Gozcu.Media.Ffmpeg;
 using Gozcu.Media.Processes;
 
@@ -75,12 +76,8 @@ public sealed class CameraRecorder : ISupervisedProcessHandler
         }
 
         var now = _time.GetUtcNow();
-        var startedAt = SegmentFileName.TryParse(entry.FileName, out _, out var nameStart)
-            ? nameStart
-            : now - entry.Duration;
-
-        // Dosya adındaki zaman saniye hassasiyetinde, süre ise ffmpeg'in ölçtüğü akış süresidir.
         var duration = entry.Duration > TimeSpan.Zero ? entry.Duration : _segmentDuration;
+        var startedAt = SegmentStart(entry.FileName, now, duration);
         var segment = new CompletedSegment(_cameraId, path, startedAt, startedAt + duration, file.Length, now);
 
         lock (_lock)
@@ -93,13 +90,38 @@ public sealed class CameraRecorder : ISupervisedProcessHandler
         _onSegment(segment);
     }
 
+    /// <summary>
+    /// Bu sapmadan fazlası, satırın geç işlendiği (ör. süreç ya da sistem takıldı) anlamına gelir; o zaman dosya adı kullanılır.
+    /// </summary>
+    internal static readonly TimeSpan MaxArrivalClockSkew = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Parçanın duvar saatindeki başlangıcı. ffmpeg CSV satırını parçayı kapattığı anda, yani bir sonraki parçanın ilk
+    /// anahtar karesi geldiğinde yazar; bu yüzden "şimdi − süre" parçanın ilk karesinin geliş zamanıdır ve salise
+    /// hassasiyetindedir. Dosya adındaki zaman ise saniyeye yuvarlanmıştır (0–1 sn erken). Geri oynatmada tespit
+    /// kutularının görüntüyle örtüşmesi için analiz servisiyle aynı saat (karenin geliş zamanı) kullanılır. Hesaplanan
+    /// değer dosya adıyla tutarsızsa dosya adına dönülür.
+    /// </summary>
+    internal static DateTimeOffset SegmentStart(string fileName, DateTimeOffset now, TimeSpan duration)
+    {
+        var arrival = now - duration;
+        if (!SegmentFileName.TryParse(fileName, out _, out var nameStart))
+        {
+            return arrival;
+        }
+
+        return arrival >= nameStart - TimeSpan.FromMilliseconds(500) && arrival < nameStart + MaxArrivalClockSkew
+            ? arrival
+            : nameStart;
+    }
+
     public void OnStandardError(string line)
     {
         if (!string.IsNullOrWhiteSpace(line))
         {
             lock (_lock)
             {
-                _lastError = line.Trim();
+                _lastError = RtspUrlMasking.Redact(line.Trim());
             }
         }
     }
@@ -110,7 +132,7 @@ public sealed class CameraRecorder : ISupervisedProcessHandler
         {
             if (error is not null)
             {
-                _lastError = error.Message;
+                _lastError = RtspUrlMasking.Redact(error.Message);
             }
 
             _lastError ??= $"ffmpeg {exitCode} koduyla çıktı";

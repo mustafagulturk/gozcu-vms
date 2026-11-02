@@ -15,6 +15,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Gozcu.IntegrationTests" />
+    <InternalsVisibleTo Include="Gozcu.UnitTests" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Persistence\Migrations\*.sql" />

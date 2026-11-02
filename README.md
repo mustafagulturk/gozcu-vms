@@ -10,13 +10,16 @@ ve olayları web panelde gösteren mikroservis tabanlı bir video yönetim siste
 Gerçek kamera gerektirmez: video dosyaları MediaMTX ile sahte RTSP kameralar olarak yayınlanır; testler ve CI da bu
 sahte kameralarla çalışır.
 
-> **Durum:** 3. aşama tamamlandı (YOLOX + ONNX Runtime ile insan ve araç tespiti). Yol haritası aşağıda.
+> **Durum:** 4. aşama tamamlandı (tek web paneli, olay arama, geri oynatmada tespit kutuları, API ile kamera yönetimi).
+> Yol haritası aşağıda.
+
+![Olay arama: kayıttan alınmış küçük resimlerle insan ve araç olayları](docs/images/asama4-olaylar.png)
+
+![Geri oynatmada tespit kutuları ve zaman çizelgesinde olay işaretleri](docs/images/asama4-geri-oynatma.png)
+
+![API ile kamera yönetimi](docs/images/asama4-kameralar.png)
 
 ![Nesne analizi: son analiz edilen kareler, tespit kutuları ve olaylar](docs/images/asama3-analiz.png)
-
-![Dört kameralı canlı izleme](docs/images/asama2-coklu-kamera.png)
-
-![Saate göre geri oynatma](docs/images/asama2-geri-oynatma.png)
 
 ## English summary
 
@@ -30,7 +33,7 @@ ffprobe and quarantined, and finished segments missing from the index are recove
 only component that decodes video: it samples a few frames per second per camera with FFmpeg (letterboxed to the model
 input), runs YOLOX object detection with ONNX Runtime in-process, stores per-frame detections as JSONB metadata in
 PostgreSQL and turns them into debounced person/vehicle events published on RabbitMQ. Back-pressure is handled with a
-drop-oldest channel so inference always works on the freshest frame. Upcoming phases add event search and a web dashboard. Fake cameras are served by MediaMTX, so the whole system, its integration tests and CI
+drop-oldest channel so inference always works on the freshest frame. A YARP-based gateway serves a single-origin web dashboard (live view, playback with detection boxes drawn over the video and event markers on the timeline, event search with keyset pagination and thumbnails cut from the recordings, camera management). Cameras are managed through a REST API with optimistic concurrency (ETag / If-Match); the database is the source of truth and every service starts and stops its per-camera workers at runtime when the catalog changes (RabbitMQ signal plus periodic refresh). Fake cameras are served by MediaMTX, so the whole system, its integration tests and CI
 run without real hardware. `docker compose up --build` starts everything.
 
 ## Mimari
@@ -43,37 +46,35 @@ flowchart LR
 
     M -- "RTSP (TCP)" --> S[Akış servisi<br/>bağlantı · yeniden bağlanma · sağlık]
     M -- "RTSP (TCP)" --> R[Kayıt servisi<br/>-c copy · 1 dk MP4 parçaları · saklama]
-    M -- HLS --> B[Tarayıcı<br/>canlı izleme]
-    S -- "/api/cameras" --> B
-    R -- "geri oynatma · Range · klip" --> B
+    B[Tarayıcı] -- "tek köken :5000" --> G[Ağ geçidi · web paneli<br/>YARP ters vekil]
+    G -- "/api/cameras" --> S
+    G -- "/api/playback · /api/recordings" --> R
+    G -- "/api/analysis" --> A
+    G -- "/hls" --> M
 
     R --> D[(Disk<br/>/recordings)]
     R -- "parça metaverisi · uzlaştırma" --> P[(PostgreSQL)]
-    S -- kamera kataloğu --> P
+    S -- "kamera kataloğu (CRUD, If-Match)" --> P
 
-    S -- camera.status.changed --> Q{{RabbitMQ<br/>gozcu.events}}
+    S -- "camera.status.changed · camera.catalog.changed" --> Q{{RabbitMQ<br/>gozcu.events}}
+    Q -- camera.catalog.changed --> R
+    Q -- camera.catalog.changed --> A
     R -- recording.segment.completed --> Q
 
     M -- "RTSP (TCP)" --> A[Analiz servisi<br/>ffmpeg 2 fps kod çözme<br/>YOLOX + ONNX Runtime]
     A -- "tespit kareleri · olaylar" --> P
     A -- "analysis.detection.started / ended" --> Q
-    A -- "son kare + kutular · olaylar" --> B
-    Q -.-> E[API ve olay servisi]:::planned
-    E -.-> W[Web panel]:::planned
-
-    classDef planned stroke-dasharray: 5 5,opacity:0.6
 ```
-
-Kesikli kutular sonraki aşamalarda eklenecek servislerdir.
 
 | Bileşen | Sorumluluk |
 |---|---|
-| `Gozcu.StreamingService` | Her kamera için akışı çözmeden okuyan bir ffmpeg süreci çalıştırır. Akışın gerçek zamanlı gelip gelmediğini ölçer (`Connecting → Online → Degraded → Offline`), bağlantı koparsa üstel geri çekilmeyle yeniden bağlanır, durum değişikliklerini RabbitMQ'ya yayınlar. Canlı izleme sayfasını ve `/api/cameras` uç noktasını sunar. |
-| `Gozcu.RecordingService` | ffmpeg segment muxer ile akışı **yeniden kodlamadan** saat sınırlarına hizalı MP4 parçalarına yazar. Biten her parçayı PostgreSQL'e kaydeder ve olay yayınlar. Kota aşıldığında veya disk dolmak üzereyken en eski parçaları siler. Geri oynatma sayfasını, zaman çizelgesi / parça akışı / klip dışa aktarma API'sini sunar. Açılışta disk ile veritabanını uzlaştırır. |
-| `Gozcu.AnalysisService` | Sistemde videoyu **çözen tek** servis. Her kamera için ffmpeg'i saniyede 2 kare, model boyutunda (416×416, letterbox) ham BGR çıktı verecek şekilde çalıştırır. Kareler kapasitesi 1 olan "en eskiyi at" kanalından çıkarıma gider, böylece gecikme birikmez. Tespitleri PostgreSQL'e JSONB olarak toplu yazar, art arda karelerden insan/araç **olayları** üretip RabbitMQ'ya yayınlar. Analiz sayfasını ve tespit/olay API'sini sunar. |
+| `Gozcu.StreamingService` | Her kamera için akışı çözmeden okuyan bir ffmpeg süreci çalıştırır. Akışın gerçek zamanlı gelip gelmediğini ölçer (`Connecting → Online → Degraded → Offline`), bağlantı koparsa üstel geri çekilmeyle yeniden bağlanır, durum değişikliklerini RabbitMQ'ya yayınlar. Kamera kataloğunun sahibidir: `/api/cameras` CRUD API'si (ETag / If-Match, parola maskeleme, ffprobe ile bağlantı testi), ilk açılışta yapılandırmadan tek seferlik tohumlama, her değişiklikte `camera.catalog.changed`. |
+| `Gozcu.RecordingService` | ffmpeg segment muxer ile akışı **yeniden kodlamadan** saat sınırlarına hizalı MP4 parçalarına yazar. Biten her parçayı PostgreSQL'e kaydeder ve olay yayınlar. Kota aşıldığında veya disk dolmak üzereyken en eski parçaları siler. Zaman çizelgesi / parça akışı / klip dışa aktarma / tek kare JPEG (`frame.jpg`) API'sini sunar. Açılışta disk ile veritabanını uzlaştırır. |
+| `Gozcu.AnalysisService` | Sistemde videoyu **çözen tek** servis. Her kamera için ffmpeg'i saniyede 2 kare, model boyutunda (416×416, letterbox) ham BGR çıktı verecek şekilde çalıştırır. Kareler kapasitesi 1 olan "en eskiyi at" kanalından çıkarıma gider, böylece gecikme birikmez. Tespitleri PostgreSQL'e JSONB olarak toplu yazar, art arda karelerden insan/araç **olayları** üretip RabbitMQ'ya yayınlar. Tespit/olay API'sini ve keyset sayfalamalı olay aramasını sunar. |
+| `Gozcu.Gateway` | Tarayıcının konuştuğu tek servis. Web panelini (Canlı, Kayıtlar, Olaylar, Kameralar, Analiz) statik dosya olarak sunar, `/api/**` ve `/hls/**` isteklerini YARP ile sahibi olan servise iletir. Tek köken olduğu için CORS gerekmez ve servis adresleri tarayıcıya sızmaz. |
 | `Gozcu.Vision` | ONNX Runtime ile YOLOX çıkarımı: BGR → CHW tensör, ızgara/adım (grid/stride) kod çözme, sınıf bazında NMS, COCO sınıflarını insan/araç kategorilerine eşleme, kutuları kaynak görüntüye göre 0..1 aralığına normalize etme. ASP.NET'e bağımlı değildir. |
 | `Gozcu.Media` | ffmpeg süreç denetleyicisi (yeniden başlatma, nazik durdurma), komut üreticileri (kayıt, izleme, concat ile klip), ffprobe ile medya doğrulama ve çıktı ayrıştırıcıları. |
-| `Gozcu.Infrastructure` | PostgreSQL (Dapper, gömülü SQL betikleriyle şema yönetimi) ve RabbitMQ (topic exchange) erişimi. |
+| `Gozcu.Infrastructure` | PostgreSQL (Dapper, gömülü SQL betikleriyle şema yönetimi) ve RabbitMQ (topic exchange, yayın ve abonelik) erişimi. Kamera kataloğunun bellekteki kopyası (`CameraCatalog`) ve katalog değiştikçe kamera başına işleri başlatıp durduran `CameraWorkerHost`. |
 | `Gozcu.Contracts` | Servisler arası olaylar ve kamera tanımları. |
 
 ### Tasarım kararları
@@ -110,6 +111,23 @@ Kesikli kutular sonraki aşamalarda eklenecek servislerdir.
 - **Kare değil olay.** Her kare tek başına gürültülüdür. Bir kategori art arda en az 2 karede %50 üzeri güvenle görülünce
   olay açılır, 5 sn görülmezse kapanır (`analysis.detection.started` / `ended`). Tespitlerin kendisi kare kare JSONB
   olarak saklanır (boş kareler yazılmaz); 4. aşamadaki zaman çizelgesi işaretleri ve olay araması bunları kullanacak.
+- **Tek köken, ağ geçidi.** Panel ve tüm API'ler `:5000`'den gelir; YARP yolun ilk parçasına göre ilgili servise iletir.
+  Tarayıcı servislerin iç adreslerini bilmez, CORS gerekmez, servisler yalnızca JSON üretir. MediaMTX'in HLS yönlendirmesi
+  (`Location: /cam1/...`) ağ geçidinde `/hls` önekiyle yeniden yazılır.
+- **Kamera kataloğu veritabanında.** Kameralar API ile eklenir/değiştirilir/silinir; servisler listeyi açılışta okur,
+  `camera.catalog.changed` olayında ve 30 sn'de bir yeniden okur. Olay yalnızca "yeniden oku" sinyalidir, içeriği taşımaz;
+  kaybolursa periyodik yenileme farkı kapatır. `CameraWorkerHost` istenen ve çalışan kamera kümelerini karşılaştırır:
+  yeni kamerayı başlatır, silineni nazikçe durdurur (son parça kapanır), adresi değişeni önce durdurup sonra başlatır.
+- **İyimser eşzamanlılık.** Her kameranın `version` sütunu ETag olarak döner; `PUT`/`DELETE` `If-Match` ile gelirse
+  sürüm uyuşmadığında 412 döner. İki operatör aynı kamerayı aynı anda düzenlediğinde sessizce üzerine yazılmaz.
+- **Parola sızmaz.** RTSP adresindeki parola API yanıtlarında, günlüklerde ve ffmpeg hata satırlarında `***` ile
+  maskelenir. Düzenlemede adres boş bırakılırsa ya da maskeli gönderilirse kayıtlı parola korunur.
+- **Keyset sayfalama.** Olay araması `(started_at, id)` imleciyle sayfalanır (`OFFSET` yok): derin sayfalar da dizinden
+  aynı maliyetle okunur ve yeni olaylar geldikçe sayfalar kaymaz. 500 bin olayda sorgular 1 ms'nin altında.
+- **Kutular kayıtla eşlenir.** Geri oynatmada oynatma anının çevresindeki tespit kareleri (`/frames`) yüklenir, en yakın
+  kare (±0,5 sn) videonun üstündeki canvas'a çizilir. Kutular 0..1 normalize olduğu için çözünürlükten bağımsızdır.
+- **Küçük resim kayıttan, isteğe bağlı.** Olay kartlarındaki görüntü önceden üretilip saklanmaz; ffmpeg ilgili parçadan
+  tek kareyi JPEG'e çevirir (en fazla 2 eşzamanlı, 1 gün tarayıcı önbelleği).
 - **Test edilebilir zaman.** Sağlık durum makinesi ve yeniden bağlanma denetleyicisi .NET 8 `TimeProvider` kullanır;
   birim testleri `FakeTimeProvider` ile gerçek beklemeden çalışır.
 
@@ -131,20 +149,26 @@ docker compose up --build
 
 | Adres | Ne var |
 |---|---|
-| <http://localhost:5080> | Canlı izleme sayfası (4 kamera, durum + HLS oynatıcı) |
-| <http://localhost:5081> | Geri oynatma sayfası (zaman çizelgesi, saate göre oynatma, klip indirme) |
+| <http://localhost:5000> | **Web paneli**: Canlı, Kayıtlar (tespit kutuları, olay işaretli zaman çizelgesi, klip), Olaylar, Kameralar, Analiz |
+| <http://localhost:5000/events.html> | Olay arama (kamera, kategori, zaman, en düşük güven, en kısa süre) |
+| <http://localhost:5000/cameras.html> | Kamera ekleme, düzenleme, silme ve bağlantı testi |
+| <http://localhost:5000/api/cameras> | Kamera kataloğu + sağlık durumu (`POST`, `PUT` + `If-Match`, `DELETE`, `POST /probe`) |
+| <http://localhost:5000/api/analysis/events/search?category=Person> | Olay arama API'si (`cameraId` tekrarlanabilir, `from`, `to`, `minConfidence`, `minDurationSeconds`, `cursor`, `limit`) |
+| `http://localhost:5000/api/analysis/cameras/cam3/frames?from=…&to=…` | Bir aralığın tespit kareleri (eskiden yeniye, en fazla 15 dk) |
+| `http://localhost:5000/api/playback/cam3/frame.jpg?time=…&width=320` | Kayıttan o andaki tek kare |
 | <http://localhost:5081/api/playback/cam1/timeline> | Son bir saatin kayıtları, boşlukları ve kapsama aralıkları |
 | `http://localhost:5081/api/playback/cam1/export?from=…&to=…` | Yeniden kodlamasız MP4 klip (en fazla 1 saat) |
 | <http://localhost:5081/api/recordings/reconciliation> | Açılış uzlaştırması raporu |
-| <http://localhost:5082> | Analiz sayfası (son analiz edilen kare + tespit kutuları, sayaçlar, son olaylar) |
 | <http://localhost:5082/api/analysis/events?category=Person> | İnsan/araç olayları (`cameraId`, `category`, `from`, `to`) |
 | <http://localhost:5082/api/analysis/detections?cameraId=cam3> | Kare kare tespit metaverisi (normalize kutular) |
 | <http://localhost:5082/api/analysis/status> | Model, kamera başına analiz FPS'i, çıkarım süresi, atılan kare |
-| <http://localhost:5080/api/cameras> | Kamera sağlık durumu |
 | <http://localhost:5081/api/recordings/status> | Kayıt durumu ve kayıt gecikmesi ölçümleri |
 | <http://localhost:5081/api/recordings/segments?cameraId=cam1&from=2026-10-28T10:00:00Z&to=2026-10-28T11:00:00Z> | Saate göre kayıt parçası arama |
 | <http://localhost:15672> | RabbitMQ yönetim arayüzü (`gozcu` / `gozcu`) |
 | `rtsp://localhost:8554/cam1` | Sahte kamera (VLC ile açılabilir) |
+
+Servisler kendi portlarında da (5080 akış, 5081 kayıt, 5082 analiz) API sunar; panel ise yalnızca ağ geçidindedir.
+Kameralar ilk açılışta `docker-compose.yml`'deki listeyle bir kez tohumlanır; sonrasında kaynak veritabanıdır.
 
 Kayıtlar `recordings` Docker biriminde tutulur. Parça süresi ve saklama sınırları ortam değişkenleriyle değiştirilebilir:
 
@@ -178,6 +202,7 @@ docker compose up -d mediamtx postgres rabbitmq
 dotnet run --project src/Gozcu.StreamingService   # http://localhost:5080
 dotnet run --project src/Gozcu.RecordingService   # http://localhost:5081
 dotnet run --project src/Gozcu.AnalysisService    # http://localhost:5082 (models/yolox_tiny.onnx gerekir)
+dotnet run --project src/Gozcu.Gateway            # http://localhost:5000 (web paneli)
 ```
 
 ### Testler
@@ -221,7 +246,7 @@ kullanımı test desenlerinin anlık kodlanmasından kaynaklanır; hazırlanmı�
 - [x] **1. Tek kamera canlı izleme ve kayıt** – RTSP bağlantısı, otomatik yeniden bağlanma, sağlık durumu, yeniden kodlamasız 1 dk parçalar, saklama politikası, Docker Compose, CI
 - [x] **2. Çoklu kamera ve geri oynatma** – 4 sahte kamera, saate göre geri oynatma ve zaman çizelgesi, yeniden kodlamasız klip dışa aktarma, açılışta disk/veritabanı uzlaştırması
 - [x] **3. Nesne tespiti** – saniyede 2 kare ile YOLOX (ONNX Runtime), insan/araç tespiti, kare kare metaveri (JSONB), olaylar (PostgreSQL + RabbitMQ), analiz sayfası
-- [ ] **4. Olay arama ve web panel** – kamera yönetimi API'si, olay arama, tespit kutuları, zaman çizelgesi
+- [x] **4. Olay arama ve web panel** – YARP ağ geçidiyle tek panel, API ile kamera yönetimi (ETag/If-Match, çalışırken kamera ekleme/çıkarma), keyset sayfalamalı olay arama, geri oynatmada tespit kutuları ve olay işaretli zaman çizelgesi
 - [ ] **5. Ölçümler, testler ve dokümantasyon** – yük testleri, ölçüm tablosu, demo GIF
 
 ## Öğrenme notları
@@ -230,6 +255,7 @@ Her aşamanın arkasındaki kavramlar, tasarım kararları ve mülakat soruları
 
 - [Aşama 2: çoklu kamera ve geri oynatma](docs/asama-2-ogrenme-notu.md)
 - [Aşama 3: nesne tespiti](docs/asama-3-ogrenme-notu.md)
+- [Aşama 4: olay arama ve web panel](docs/asama-4-ogrenme-notu.md)
 
 ## Lisans
 

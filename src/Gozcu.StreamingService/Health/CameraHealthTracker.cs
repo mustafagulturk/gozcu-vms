@@ -83,7 +83,7 @@ public sealed class CameraHealthTracker
     {
         lock (_lock)
         {
-            _lastError = line;
+            _lastError = RtspUrlMasking.Redact(line);
         }
     }
 

@@ -15,14 +15,31 @@ public class AnalysisFramesCommandTests
         AssertPair(args, "-timeout", "5000000");
         AssertPair(args, "-i", Camera.ToString());
         AssertPair(args, "-map", "0:v:0");
-        AssertPair(args, "-vf", "fps=2,scale=416:416:force_original_aspect_ratio=decrease,pad=416:416:0:0:color=0x727272");
+        AssertPair(args, "-vf", @"select=isnan(prev_selected_t)+gte(t-prev_selected_t\,0.475),scale=416:416:force_original_aspect_ratio=decrease,pad=416:416:0:0:color=0x727272,showinfo");
+        AssertPair(args, "-fps_mode", "passthrough");
         AssertPair(args, "-pix_fmt", "bgr24");
-        AssertPair(args, "-f", "rawvideo");
+        Assert.Equal("rawvideo", args[^2]);
         Assert.Equal("pipe:1", args[^1]);
         Assert.Contains("-an", args);
         Assert.Contains("-nostats", args);
         Assert.Contains("-nostdin", args);
-        Assert.DoesNotContain("copy", args);
+    }
+
+    [Fact]
+    public void Packet_timestamps_go_to_stderr_without_decoding_and_decoding_uses_slice_threads()
+    {
+        var list = FfmpegCommands.AnalysisFrames(Camera, 2, 416, 416).ToList();
+
+        // Zaman damgası çıkışı kopyalar (kod çözmez), kare çıkışından önce gelir ve stderr'e yazar.
+        var copy = list.IndexOf("copy");
+        Assert.True(copy > list.IndexOf("-i"));
+        Assert.Equal("framecrc", list[list.IndexOf("-f", copy) + 1]);
+        Assert.Equal("pipe:2", list[list.IndexOf("-f", copy) + 2]);
+        Assert.True(copy < list.IndexOf("-vf"));
+
+        // Kare tabanlı çok iş parçacıklı çözme gecikme ekler; dilim tabanlısı eklemez. Giriş seçeneğidir.
+        Assert.True(list.IndexOf("-thread_type") < list.IndexOf("-i"));
+        Assert.Equal("slice", list[list.IndexOf("-thread_type") + 1]);
     }
 
     [Fact]
@@ -42,7 +59,7 @@ public class AnalysisFramesCommandTests
     {
         var args = FfmpegCommands.AnalysisFrames(Camera, 0.5, 640, 384, TimeSpan.FromSeconds(2));
 
-        AssertPair(args, "-vf", "fps=0.5,scale=640:384:force_original_aspect_ratio=decrease,pad=640:384:0:0:color=0x727272");
+        AssertPair(args, "-vf", @"select=isnan(prev_selected_t)+gte(t-prev_selected_t\,1.9),scale=640:384:force_original_aspect_ratio=decrease,pad=640:384:0:0:color=0x727272,showinfo");
         AssertPair(args, "-timeout", "2000000");
     }
 
