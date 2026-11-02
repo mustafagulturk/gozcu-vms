@@ -54,6 +54,23 @@ Bizde sistem ölçümü bunu net gösterdi: **analiz CPU'sunun yarısına yakın
   de sayılır. Planlanan zamandan ölçmezsen takılma anındaki gecikmeler örneklemden düşer: buna **koordineli ihmal** denir.
 - Uçuşta en çok `--concurrency` istek olabilir; başlatılamayan istekler "atılan" olarak sayılır, sessizce kaybolmaz.
 
+### Yük testinin bulduğu hata: bağlantı havuzu tükenmesi
+Açık modelde 800 istek/sn'de akış servisi bir kez HTTP 500 döndü. Günlükte: `Npgsql.PostgresException 53300: sorry, too
+many clients already`.
+- Npgsql her bağlantı dizesi için bir **bağlantı havuzu** tutar; varsayılan üst sınır **100**. Üç servis (akış, kayıt,
+  analiz) aynı veritabanına bağlanıyor: kâğıt üzerinde 300 bağlantı açılabilir.
+- PostgreSQL'in `max_connections` değeri varsayılan **100**. Her bağlantı PostgreSQL'de ayrı bir süreçtir (birkaç MB bellek),
+  bu yüzden sınır düşüktür.
+- Düşük yükte hata görünmez: havuz ancak eşzamanlı sorgu sayısı arttıkça büyür. Yük testi olmasa sahada, en yoğun anda çıkardı.
+- Düzeltme: bağlantı dizesine `Maximum Pool Size=25` (3 × 25 = 75 < 100, yönetim araçlarına yer kalır). Tekrarında hata yok,
+  en yüksek eşzamanlı bağlantı 70. Havuz dolarsa istek hata almaz, boş bağlantı için sırada **bekler** (zaman aşımına kadar);
+  geri basınç veritabanına değil uygulamaya taşınır.
+- Daha büyük ölçekte: PgBouncer gibi bir bağlantı havuzlayıcı (transaction pooling) ya da okuma kopyaları.
+
+Açık model sonuçları da "dirsek noktasını" gösterdi: 200 → 600 istek/sn arası p99 22 → 97 ms ile yumuşak artıyor; 800'de
+sistem doyuyor (gerçekleşen 731/sn), p99 356 ms'ye sıçrıyor ve uçuştaki 64 istek sınırı dolduğu için 2079 istek
+başlatılamıyor. Kapasite planlamasında "en çok kaç istek" değil, "p99 hedefini bozmadan kaç istek" sorulur: burada ~600.
+
 ### BenchmarkDotNet neden? `Stopwatch` ile ölçsek olmaz mı?
 - JIT ısınması, katmanlı derleme (tiered compilation), GC, CPU frekans değişimi tek `Stopwatch` ölçümünü anlamsız kılar.
   BenchmarkDotNet ayrı süreçte, ısınma ve çok tekrar yapıp istatistik verir (ortalama, hata payı, standart sapma).
@@ -152,10 +169,14 @@ betikle üretmek, arayüz değişince "yeniden çek" işini tek komuta indirir.
 10. **100 kameraya nasıl çıkarsın?**
     Kayıt: tek sunucu yüzlerce kamera, sınır disk ve ağ (4 Mbps × 100 = 400 Mbps, günde ~4 TB). Analiz: kameraları
     birden çok analiz örneğine paylaştırmak (yatay ölçekleme), GPU, donanım kod çözme, batch çıkarım. Hepsi ölçümle doğrulanır.
-11. **Yük testleri neden CI'da yok?**
+11. **Yük testi sana ne buldu?**
+    Bağlantı havuzu tükenmesi: Npgsql'in varsayılan havuzu (100) × 3 servis, PostgreSQL'in `max_connections`'ını (100)
+    aşabiliyordu. 800 istek/sn'de "too many clients" ile 500 döndü. `Maximum Pool Size=25` ile düzelttim, tekrar ölçtüm:
+    hata yok, en çok 70 bağlantı. Büyük ölçekte PgBouncer.
+12. **Yük testleri neden CI'da yok?**
     Paylaşımlı CI makinelerinde sayılar gürültülü ve test uzun. CI'da doğruluk (birim, entegrasyon, duman) testleri var;
     performans ayrı, sabit donanımda ve elle/gece çalıştırılır.
-12. **Bu ölçümlere ne kadar güvenirsin?**
+13. **Bu ölçümlere ne kadar güvenirsin?**
     Tek makine, tek tekrar, sahte kameralar aynı makinede. Eğilim güvenilir (doğrusal kayıt, analiz darboğazı),
     mutlak sayılar donanıma bağlı. Bu yüzden betik ve ham sonuçlar repoda: başka makinede tek komutla tekrarlanır.
 
