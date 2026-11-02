@@ -123,6 +123,26 @@ servislerinde belirmesi), 409/400/412 hatalarını deneyip, silip (servislerden 
     normalize olduğu için video hangi boyutta gösterilirse gösterilsin doğru yere düşer.
 - Zaman çizelgesinde olaylar kategori rengiyle şerit olarak çizilir; tıklayınca olaydan 2 sn önce oynatılır (ön kayıt payı).
 
+### Kutular neden ~1 sn geride kalıyordu, nasıl düzeldi?
+İlk sürümde geri oynatmada kutular kişilerin yaklaşık 1 sn gerisindeydi. Ölçünce iki ayrı kayma çıktı:
+- **Analiz karesi geç damgalanıyordu.** Kare zamanı, ffmpeg'in stdout'undan okunduğu an alınıyordu. Oysa kod çözücü B kareler
+  için yeniden sıralama yapar, kareleri tamponlar, seyreltir ve ölçekler: ölçülen gecikme ~1,06 sn (dilim iş parçacığıyla ~0,8 sn).
+- **Kayıt parçasının başlangıcı erken yazılıyordu.** Parça adındaki saat, parçanın gerçek başlangıcından 0–1 sn öncesini gösteriyordu.
+
+Düzeltme, iki tarafı da **"karenin sunucuya geldiği an"** saatine bağlamak:
+- `FrameClock` (`src/Gozcu.Media/Frames/FrameClock.cs`): aynı ffmpeg süreci akışı yeniden kodlamadan `framecrc` biçiminde
+  stderr'e de yazar. Her anahtar kare paketi geldiği anda bir satır üretir; `geliş anı − PTS` akış zamanını duvar saatine bağlayan
+  **tabanı** verir (son 5 tabanın en küçüğü; gecikme hep pozitif olduğu için en küçük en doğrusudur). Analiz zincirinin sonundaki
+  `showinfo` süzgeci her çıkan karenin PTS'ini yazar. **Kare zamanı = taban + PTS.** Hesaplanamazsa (PTS 250 ms içinde gelmezse,
+  sonuç 0–10 sn dışında kalırsa) eski yönteme, okuma anına dönülür. Zaman hiçbir zaman geri gitmez (monoton sıkıştırma).
+- `fps` süzgeci yerine `select=...gte(t-prev_selected_t, 0.95/fps)`: `fps` süzgeci kareyi bir sonraki kare gelene kadar tutar ve
+  PTS'i yuvarlar; `select` gelen kareyi olduğu gibi geçirir, PTS'i değiştirmez. `-fps_mode passthrough` çıkışta kare çoğaltmayı kapatır.
+- `-thread_type slice`: kare tabanlı çoklu iş parçacığı her iş parçacığı için bir kare tamponlar; dilim tabanlı tamponlamaz.
+- Kayıt tarafında `CameraRecorder.SegmentStart`: parça bittiğinde `şimdi − süre` hesaplanır; parça adındaki saate yakınsa
+  ([ad −0,5 sn, ad +2 sn)) bu değer, değilse (ör. servis geç fark etti) adındaki saat kullanılır.
+- Sonuç: ölçülen hizalama hatası ~1 sn'den ~0,002 sn'ye indi. Durum ucunda (`/api/analysis/status`) kamera başına
+  `captureDelayMs` artık kod çözme hattının gecikmesini gösteriyor (canlı sistemde ~560 ms).
+
 ### Kayıttan tek kare (küçük resim)
 - `GET /api/playback/{cam}/frame.jpg?time=...&width=320`: o anı içeren parça bulunur, ffmpeg
   `-ss <ofset> -i parça.mp4 -frames:v 1 -vf scale=320:-2 -q:v 5 -f image2pipe pipe:1` ile JPEG üretir.
@@ -201,9 +221,12 @@ servislerinde belirmesi), 409/400/412 hatalarını deneyip, silip (servislerden 
 11. **Geri oynatmada kutuyu doğru kareye nasıl denk getiriyorsun?**
     Duvar saati = parça başlangıcı + `currentTime`. Tespit kareleri zaman damgalı ve sıralı yüklenir; ikili aramayla en yakını
     bulunur, ±0,5 sn dışındaysa çizilmez. Kutular normalize olduğu için video boyutundan bağımsız.
-12. **Kutular kayıtla neden tam örtüşmeyebilir?**
-    Analiz 2 fps; kareler arasında nesne hareket eder. Ayrıca analiz servisinin kare zamanı ile kayıt parçasının zamanı farklı
-    ffmpeg süreçlerinden gelir (birkaç yüz ms kayma). Kesin eşleme için kayıt ve analizin aynı PTS'i paylaşması gerekir.
+12. **Kutular kayıtla neden kayabilir, sen nasıl çözdün?**
+    İki süreç iki farklı saat kullanırsa kayar. Analiz karesini stdout'tan okunduğu anla damgalamak kod çözme gecikmesini
+    (B kare yeniden sıralama, tamponlama, ~1 sn) ekler; kayıt parçasının adındaki saat de gerçek başlangıçtan erken olabilir.
+    Çözüm iki tarafı da karenin geliş saatine bağlamak: anahtar kare paketinin geliş anı − PTS = taban, kare zamanı = taban + PTS
+    (`framecrc` + `showinfo` ile). `fps` yerine `select` süzgeci PTS'i bozmaz. Kalan fark analizin 2 fps olmasından gelir:
+    iki kare arasında nesne hareket eder.
 13. **Olay listesinde 50 küçük resim 50 ffmpeg açar mı?**
     Hayır: en fazla 2 eşzamanlı (semafor), tarayıcı `loading=lazy` ile yalnız görünenleri ister, yanıt 1 gün önbellekte.
 14. **RTSP parolasını nasıl koruyorsun?**
@@ -214,6 +237,10 @@ servislerinde belirmesi), 409/400/412 hatalarını deneyip, silip (servislerden 
 16. **Sistemde kimlik doğrulama olsaydı nereye koyardın?**
     Ağ geçidine: OIDC ile giriş, JWT doğrulama, rol tabanlı yetki (izleyici yalnız okur, operatör kamera düzenler). Arka uç
     servisleri iç ağda kalır ya da ağ geçidinden gelen kimlik başlığına güvenir (mTLS ile).
+17. **CI'da `curl ... | grep -q` neden ara sıra exit 23 ile düştü?**
+    `grep -q` ilk eşleşmede çıkar, boru kapanır; `curl` yazmaya devam edince SIGPIPE alır (exit 23). `set -o pipefail`
+    açıkken boru hattı başarısız sayılır. Yanıt büyükse olur, küçükse olmaz: bu yüzden ara sıra. Çözüm: yanıtı önce
+    değişkene okuyup sonra aramak (`contains` yardımcısı).
 
 ## 6. Kendin dene
 

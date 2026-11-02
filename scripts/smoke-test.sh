@@ -14,6 +14,14 @@
 # Kullanım: SEGMENT_SECONDS=10 docker compose up -d && ./scripts/smoke-test.sh
 set -euo pipefail
 
+# "curl | contains" pipefail ile güvenilmez: grep eşleşmeyi bulunca girişi kapatır, curl yanıtın kalanını yazamayıp
+# 23 ile çıkar ve eşleşme olduğu hâlde boru hattı başarısız sayılır. Bu yardımcı önce girişin tamamını okur.
+contains() {
+  local input
+  input=$(cat)
+  grep -q "$@" <<<"$input"
+}
+
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:5000}"
 STREAMING_URL="${STREAMING_URL:-http://localhost:5080}"
 RECORDING_URL="${RECORDING_URL:-http://localhost:5081}"
@@ -83,14 +91,14 @@ wait_for "Ağ geçidi hazır" "curl -fsS $GATEWAY_URL/health/ready"
 
 echo "🖥️  Web paneli (ağ geçidi)"
 for page in / /playback.html /events.html /cameras.html /analysis.html; do
-  curl -fsS "$GATEWAY_URL$page" | grep -q "<title>Gözcü VMS" && echo "  $page ✅" || fail $LINENO
+  curl -fsS "$GATEWAY_URL$page" | contains "<title>Gözcü VMS" && echo "  $page ✅" || fail $LINENO
 done
-curl -fsS "$GATEWAY_URL/panel.css" | grep -q -- "--bg" && echo "  /panel.css ✅" || fail $LINENO
-curl -fsS "$GATEWAY_URL/panel.js" | grep -q "Gozcu" && echo "  /panel.js ✅" || fail $LINENO
+curl -fsS "$GATEWAY_URL/panel.css" | contains -- "--bg" && echo "  /panel.css ✅" || fail $LINENO
+curl -fsS "$GATEWAY_URL/panel.js" | contains "Gozcu" && echo "  /panel.js ✅" || fail $LINENO
 
 for cam in $CAMERAS; do
-  wait_for "$cam çevrimiçi" "curl -fsS $GATEWAY_URL/api/cameras/$cam | grep -q '\"state\":\"Online\"'"
-  wait_for "$cam canlı HLS yayını (ağ geçidi /hls/)" "curl -fsSL $GATEWAY_URL/hls/$cam/index.m3u8 | grep -q EXTM3U"
+  wait_for "$cam çevrimiçi" "curl -fsS $GATEWAY_URL/api/cameras/$cam | contains '\"state\":\"Online\"'"
+  wait_for "$cam canlı HLS yayını (ağ geçidi /hls/)" "curl -fsSL $GATEWAY_URL/hls/$cam/index.m3u8 | contains EXTM3U"
 done
 for cam in $CAMERAS; do
   wait_for "$cam: en az 2 kayıt parçası veritabanında" \
@@ -112,7 +120,7 @@ first_start=$(sed -E 's/[^[]*"segments":\[\{[^}]*"start":"([^"]+)".*/\1/' <<<"$t
 first_start=$(utc "$first_start")
 echo "  zaman çizelgesi: $(grep -o '"mediaUrl"' <<<"$timeline" | wc -l) parça, ilk parça $first_start"
 expect_status "parça akışı HTTP Range ile" 206 -H 'Range: bytes=0-1023' "$GATEWAY_URL$media_url"
-curl -fsS "$GATEWAY_URL/api/playback/cam1/locate?time=$first_start" | grep -q '"offsetSeconds"' && echo "  saate göre konum bulma ✅" || fail $LINENO
+curl -fsS "$GATEWAY_URL/api/playback/cam1/locate?time=$first_start" | contains '"offsetSeconds"' && echo "  saate göre konum bulma ✅" || fail $LINENO
 
 # Kaydedilmiş aralığın ilk ~2 parçasını klip olarak dışa aktar ve yeniden kodlanmadığını doğrula.
 clip_from="$first_start"
@@ -141,16 +149,16 @@ docker compose kill -s SIGKILL recording >/dev/null
 docker compose up -d recording >/dev/null
 wait_for "Kayıt servisi yeniden hazır" "curl -fsS $RECORDING_URL/health/ready"
 wait_for "Açılış uzlaştırması tamamlandı" \
-  "curl -fsS $GATEWAY_URL/api/recordings/reconciliation | grep -q '\"state\":\"Completed\"'"
+  "curl -fsS $GATEWAY_URL/api/recordings/reconciliation | contains '\"state\":\"Completed\"'"
 echo "  uzlaştırma raporu: $(curl -fsS "$GATEWAY_URL/api/recordings/reconciliation")"
 wait_for "Yeniden başlatmadan sonra kayıt sürüyor" \
-  "curl -fsS $GATEWAY_URL/api/recordings/status | grep -q '\"segmentsWritten\":[1-9]'"
+  "curl -fsS $GATEWAY_URL/api/recordings/status | contains '\"segmentsWritten\":[1-9]'"
 
 echo "🧠 Nesne tespiti"
 wait_for "Analiz servisi hazır (model yüklendi)" "curl -fsS $ANALYSIS_URL/health/ready"
 for cam in $CAMERAS; do
   wait_for "$cam analiz ediliyor" \
-    "curl -fsS $GATEWAY_URL/api/analysis/status | grep -q '\"cameraId\":\"$cam\"[^]]*\"state\":\"Analyzing\"'"
+    "curl -fsS $GATEWAY_URL/api/analysis/status | contains '\"cameraId\":\"$cam\"[^]]*\"state\":\"Analyzing\"'"
 done
 snapshot=$(mktemp --suffix=.bmp)
 curl -fsS -o "$snapshot" "$GATEWAY_URL/api/analysis/cameras/cam1/snapshot.bmp"
@@ -158,21 +166,21 @@ curl -fsS -o "$snapshot" "$GATEWAY_URL/api/analysis/cameras/cam1/snapshot.bmp"
 rm -f "$snapshot"
 
 # Olay arama ve tespit kareleri uçları (örnek video olmasa da yanıt biçimi doğrulanır).
-curl -fsS "$GATEWAY_URL/api/analysis/events/search?limit=5" | grep -q '"items":\[' && echo "  olay arama yanıtı ✅" || fail $LINENO
+curl -fsS "$GATEWAY_URL/api/analysis/events/search?limit=5" | contains '"items":\[' && echo "  olay arama yanıtı ✅" || fail $LINENO
 expect_status "olay aramada geçersiz parametre" 400 "$GATEWAY_URL/api/analysis/events/search?limit=0"
 frames_from=$(utc "now - 5 minutes")
 frames_to=$(utc "now")
-curl -fsS "$GATEWAY_URL/api/analysis/cameras/cam3/frames?from=$frames_from&to=$frames_to" | grep -q '^\[' && echo "  tespit kareleri yanıtı ✅" || fail $LINENO
+curl -fsS "$GATEWAY_URL/api/analysis/cameras/cam3/frames?from=$frames_from&to=$frames_to" | contains '^\[' && echo "  tespit kareleri yanıtı ✅" || fail $LINENO
 expect_status "15 dakikadan uzun kare aralığı" 400 \
   "$GATEWAY_URL/api/analysis/cameras/cam3/frames?from=$(utc "now - 1 hour")&to=$frames_to"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if ls "$REPO_ROOT"/samples/videos/*.mp4 >/dev/null 2>&1; then
-  wait_for "İnsan olayı oluştu" "curl -fsS '$GATEWAY_URL/api/analysis/events?category=Person&limit=1' | grep -q '\"category\":\"Person\"'"
-  wait_for "Araç olayı oluştu" "curl -fsS '$GATEWAY_URL/api/analysis/events?category=Vehicle&limit=1' | grep -q '\"category\":\"Vehicle\"'"
-  wait_for "Tespit kareleri veritabanında" "curl -fsS '$GATEWAY_URL/api/analysis/detections?cameraId=cam3&limit=1' | grep -q '\"label\":\"person\"'"
+  wait_for "İnsan olayı oluştu" "curl -fsS '$GATEWAY_URL/api/analysis/events?category=Person&limit=1' | contains '\"category\":\"Person\"'"
+  wait_for "Araç olayı oluştu" "curl -fsS '$GATEWAY_URL/api/analysis/events?category=Vehicle&limit=1' | contains '\"category\":\"Vehicle\"'"
+  wait_for "Tespit kareleri veritabanında" "curl -fsS '$GATEWAY_URL/api/analysis/detections?cameraId=cam3&limit=1' | contains '\"label\":\"person\"'"
   wait_for "Biten olay RabbitMQ'ya yayınlandı" \
-    "curl -fsS $GATEWAY_URL/api/analysis/status | grep -Eq '\"eventsPublished\":[1-9]'"
+    "curl -fsS $GATEWAY_URL/api/analysis/status | contains -E '\"eventsPublished\":[1-9]'"
 
   # Olay arama: kamera + kategori filtresi, ad katalogdan gelir; limit=1 ile ikinci sayfa cursor ile alınır.
   wait_for "Olay aramada en az 2 insan olayı" \
@@ -186,7 +194,7 @@ if ls "$REPO_ROOT"/samples/videos/*.mp4 >/dev/null 2>&1; then
   grep -q '"category":"Person"' <<<"$page2" && ! grep -q "\"id\":\"$first_id\"" <<<"$page2" && echo "  olay arama: cursor ile ikinci sayfa ✅" || fail $LINENO
   # Aralık (en fazla 15 dk) her denemede yeniden hesaplanır: son 10 dakika.
   wait_for "Tespit kareleri (frames) insan içeriyor" \
-    "curl -fsS \"$GATEWAY_URL/api/analysis/cameras/cam3/frames?from=\$(utc 'now - 10 minutes')&to=\$(utc now)\" | grep -q '\"category\":\"Person\"'"
+    "curl -fsS \"$GATEWAY_URL/api/analysis/cameras/cam3/frames?from=\$(utc 'now - 10 minutes')&to=\$(utc now)\" | contains '\"category\":\"Person\"'"
 else
   echo "  ⚠️  samples/videos boş: test desenlerinde nesne yok, tespit adımları atlandı (./scripts/download-sample-videos.sh)"
 fi
@@ -194,7 +202,7 @@ fi
 echo "📷 Kamera yönetimi (ağ geçidi üzerinden)"
 cleanup
 curl -fsS -X POST "$GATEWAY_URL/api/cameras/probe" -H 'Content-Type: application/json' \
-  -d "{\"rtspUrl\":\"$TEST_CAMERA_RTSP\"}" | grep -q '"ok":true' && echo "  bağlantı testi (probe) ✅" || fail $LINENO
+  -d "{\"rtspUrl\":\"$TEST_CAMERA_RTSP\"}" | contains '"ok":true' && echo "  bağlantı testi (probe) ✅" || fail $LINENO
 expect_status "$TEST_CAMERA eklendi" 201 -X POST "$GATEWAY_URL/api/cameras" -H 'Content-Type: application/json' \
   -d "{\"id\":\"$TEST_CAMERA\",\"name\":\"Duman testi\",\"rtspUrl\":\"$TEST_CAMERA_RTSP\"}"
 expect_status "aynı kimlik ikinci kez" 409 -X POST "$GATEWAY_URL/api/cameras" -H 'Content-Type: application/json' \
@@ -203,14 +211,14 @@ expect_status "geçersiz kamera" 400 -X POST "$GATEWAY_URL/api/cameras" -H 'Cont
   -d '{"id":"","name":"","rtspUrl":"http://yanlis"}'
 etag=$(curl -fsS -D - -o /dev/null "$GATEWAY_URL/api/cameras/$TEST_CAMERA" | tr -d '\r' | sed -nE 's/^[Ee][Tt][Aa][Gg]: *//p')
 [ -n "$etag" ] && echo "  ETag: $etag ✅" || fail $LINENO
-wait_for "$TEST_CAMERA çevrimiçi" "curl -fsS $GATEWAY_URL/api/cameras/$TEST_CAMERA | grep -q '\"state\":\"Online\"'"
-wait_for "$TEST_CAMERA kayıt servisinde" "curl -fsS $GATEWAY_URL/api/recordings/status | grep -q '\"cameraId\":\"$TEST_CAMERA\"'"
-wait_for "$TEST_CAMERA analiz servisinde" "curl -fsS $GATEWAY_URL/api/analysis/status | grep -q '\"cameraId\":\"$TEST_CAMERA\"'"
+wait_for "$TEST_CAMERA çevrimiçi" "curl -fsS $GATEWAY_URL/api/cameras/$TEST_CAMERA | contains '\"state\":\"Online\"'"
+wait_for "$TEST_CAMERA kayıt servisinde" "curl -fsS $GATEWAY_URL/api/recordings/status | contains '\"cameraId\":\"$TEST_CAMERA\"'"
+wait_for "$TEST_CAMERA analiz servisinde" "curl -fsS $GATEWAY_URL/api/analysis/status | contains '\"cameraId\":\"$TEST_CAMERA\"'"
 expect_status "eski sürümle güncelleme (If-Match)" 412 -X PUT "$GATEWAY_URL/api/cameras/$TEST_CAMERA" \
   -H 'Content-Type: application/json' -H 'If-Match: "999999"' -d '{"name":"Çakışma","enabled":true}'
 expect_status "güncel sürümle ad değişikliği" 200 -X PUT "$GATEWAY_URL/api/cameras/$TEST_CAMERA" \
   -H 'Content-Type: application/json' -H "If-Match: $etag" -d '{"name":"Duman testi 2","enabled":true}'
-curl -fsS "$GATEWAY_URL/api/cameras/$TEST_CAMERA" | grep -q '"name":"Duman testi 2"' && echo "  ad güncellendi, adres korundu ✅" || fail $LINENO
+curl -fsS "$GATEWAY_URL/api/cameras/$TEST_CAMERA" | contains '"name":"Duman testi 2"' && echo "  ad güncellendi, adres korundu ✅" || fail $LINENO
 expect_status "$TEST_CAMERA silindi" 204 -X DELETE "$GATEWAY_URL/api/cameras/$TEST_CAMERA"
 expect_status "silinen kamera" 404 "$GATEWAY_URL/api/cameras/$TEST_CAMERA"
 wait_for "$TEST_CAMERA kayıt servisinden kalktı" "lacks_camera $GATEWAY_URL/api/recordings/status $TEST_CAMERA"
