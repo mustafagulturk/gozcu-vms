@@ -9,6 +9,10 @@ namespace Gozcu.Media.Frames;
 /// </summary>
 public sealed class FfmpegFrameSource : IFrameSource
 {
+    private readonly TimeProvider _time;
+
+    public FfmpegFrameSource(TimeProvider? time = null) => _time = time ?? TimeProvider.System;
+
     /// <summary>
     /// İlk kare okunduğunda giriş akışı bilgisi henüz gelmediyse en fazla bu kadar beklenir. stdout ve stderr ayrı
     /// borulardır; ffmpeg bilgiyi kod çözmeden önce yazsa da satırın bize ulaşma sırası garanti değildir.
@@ -41,6 +45,7 @@ public sealed class FfmpegFrameSource : IFrameSource
 
         var streamInfoSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var streamInfoParsed = false;
+        var clock = new FrameClock();
 
         using var process = new Process { StartInfo = startInfo };
         process.ErrorDataReceived += (_, e) =>
@@ -48,6 +53,12 @@ public sealed class FfmpegFrameSource : IFrameSource
             if (e.Data is null)
             {
                 streamInfoSeen.TrySetResult();
+                return;
+            }
+
+            // Paket ve kare zaman damgası satırları (framecrc, showinfo) saat içindir; tanı satırı değildir.
+            if (clock.TryConsume(e.Data, _time.GetUtcNow()))
+            {
                 return;
             }
 
@@ -90,7 +101,8 @@ public sealed class FfmpegFrameSource : IFrameSource
                         await WaitForStreamInfoAsync(streamInfoSeen.Task, cancellationToken).ConfigureAwait(false);
                     }
 
-                    handler.OnFrame(frame);
+                    var capturedAt = await clock.CaptureTimeAsync(_time.GetUtcNow(), _time, cancellationToken).ConfigureAwait(false);
+                    handler.OnFrame(frame, capturedAt);
                 }
 
                 endedCleanly = true;

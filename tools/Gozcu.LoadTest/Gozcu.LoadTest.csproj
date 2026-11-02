@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- HTTP API yük üreticisi. Kullanım için tools/Gozcu.LoadTest/README.md dosyasına bakın. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Gozcu.LoadTest</RootNamespace>
+    <!-- CA5394: Rastgele seçimler (kamera, zaman, bayt konumu) güvenlik amaçlı değildir. -->
+    <NoWarn>$(NoWarn);CA1515;CA5394</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Gozcu.UnitTests" />
+  </ItemGroup>
+</Project>

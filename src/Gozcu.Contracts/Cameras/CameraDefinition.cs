@@ -1,8 +1,8 @@
 namespace Gozcu.Contracts.Cameras;
 
 /// <summary>
-/// Bir kameranın sistemdeki tanımı. 1. aşamada yapılandırmadan okunur,
-/// ileride API servisi üzerinden veritabanında yönetilecektir.
+/// Bir kameranın sistemdeki tanımı. Kaynak veritabanındaki <c>cameras</c> tablosudur (akış servisinin yönetim
+/// API'si yazar); servisler bu tanımı kamera kataloğundan okur.
 /// </summary>
 public sealed class CameraDefinition
 {

@@ -489,3 +489,7 @@ samples/videos/*
 !samples/videos/README.md
 TestResults/
 ccr-ca.crt
+
+# Ölçüm çıktıları
+BenchmarkDotNet.Artifacts/
+.loadtest/

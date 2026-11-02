@@ -6,7 +6,8 @@ namespace Gozcu.UnitTests.Recording;
 public sealed class CameraRecorderTests : IDisposable
 {
     private readonly string _directory = Directory.CreateTempSubdirectory("gozcu-recorder-").FullName;
-    private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 28, 17, 16, 1, TimeSpan.Zero));
+    // CSV satırı parça kapandığında gelir: 17:15:00.30'da başlayan 60,04 sn'lik parça → 17:16:00.34.
+    private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 28, 17, 16, 0, 340, TimeSpan.Zero));
     private readonly List<CompletedSegment> _segments = [];
     private readonly CameraRecorder _recorder;
 
@@ -16,7 +17,7 @@ public sealed class CameraRecorderTests : IDisposable
     }
 
     [Fact]
-    public void Completed_segment_line_produces_segment_with_time_from_file_name()
+    public void Completed_segment_line_produces_segment_with_sub_second_arrival_time()
     {
         WriteFile("cam1_20261028T171500Z.mp4", 4096);
         _recorder.OnStarted();
@@ -24,7 +25,7 @@ public sealed class CameraRecorderTests : IDisposable
         _recorder.OnStandardOutput("cam1_20261028T171500Z.mp4,0.000000,60.040000");
 
         var segment = Assert.Single(_segments);
-        Assert.Equal(new DateTimeOffset(2026, 10, 28, 17, 15, 0, TimeSpan.Zero), segment.StartedAt);
+        Assert.Equal(new DateTimeOffset(2026, 10, 28, 17, 15, 0, 300, TimeSpan.Zero), segment.StartedAt);
         Assert.Equal(60.04, (segment.EndedAt - segment.StartedAt).TotalSeconds, 3);
         Assert.Equal(4096, segment.SizeBytes);
         Assert.Equal(Path.Combine(_directory, "cam1_20261028T171500Z.mp4"), segment.FilePath);
@@ -77,6 +78,23 @@ public sealed class CameraRecorderTests : IDisposable
     }
 
     public void Dispose() => Directory.Delete(_directory, recursive: true);
+
+    [Theory]
+    [InlineData(300, 300)]        // geliş zamanı adın saniyesi içinde → salise hassas
+    [InlineData(1900, 1900)]      // ad yuvarlaması + kısa gecikme → hâlâ kabul
+    [InlineData(-400, -400)]      // küçük saat sapması → kabul
+    [InlineData(5000, 0)]         // satır geç işlendi → dosya adı
+    [InlineData(-3000, 0)]        // tutarsız → dosya adı
+    public void Segment_start_prefers_arrival_clock_but_falls_back_to_file_name(int arrivalOffsetMs, int expectedOffsetMs)
+    {
+        var name = new DateTimeOffset(2026, 10, 28, 17, 15, 0, TimeSpan.Zero);
+        var duration = TimeSpan.FromSeconds(10);
+        var now = name + TimeSpan.FromMilliseconds(arrivalOffsetMs) + duration;
+
+        var start = CameraRecorder.SegmentStart("cam1_20261028T171500Z.mp4", now, duration);
+
+        Assert.Equal(name + TimeSpan.FromMilliseconds(expectedOffsetMs), start);
+    }
 
     private string WriteFile(string name, int size)
     {

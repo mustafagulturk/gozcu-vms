@@ -39,4 +39,10 @@ public interface IFrameSourceHandler
     /// Çağrı hızlı dönmelidir: kaynak bu sırada bir sonraki kareyi okumaz.
     /// </summary>
     void OnFrame(byte[] frame);
+
+    /// <summary>
+    /// Kare ve karenin kameradan geliş zamanı (bkz. <see cref="FrameClock"/>). Kaynak bunu çağırır; varsayılan
+    /// uygulama zamanı yok sayıp <see cref="OnFrame(byte[])"/>'a iletir.
+    /// </summary>
+    void OnFrame(byte[] frame, DateTimeOffset capturedAt) => OnFrame(frame);
 }

@@ -1,9 +1,10 @@
-using System.Text.RegularExpressions;
-
 namespace Gozcu.Contracts.Cameras;
 
-/// <summary>"Cameras" yapılandırma bölümü.</summary>
-public sealed partial class CameraOptions
+/// <summary>
+/// "Cameras" yapılandırma bölümü. 4. aşamadan itibaren yalnızca akış servisi okur: veritabanındaki kamera tablosu
+/// boşsa ilk açılışta bu liste tohum olarak yazılır. Sonrasında kameralar yönetim API'siyle değiştirilir.
+/// </summary>
+public sealed class CameraOptions
 {
     public const string SectionName = "Cameras";
 
@@ -18,21 +19,17 @@ public sealed partial class CameraOptions
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var camera in Items)
         {
-            if (!IdPattern().IsMatch(camera.Id))
+            var idError = CameraValidation.ValidateId(camera.Id);
+            if (idError is not null)
             {
-                errors.Add($"Geçersiz kamera kimliği '{camera.Id}'. Yalnızca harf, rakam, '-' ve '_' kullanılabilir.");
-            }
-            else if (camera.Id.StartsWith('_'))
-            {
-                // "_" ile başlayan dizinler kayıt kökünde sisteme ayrılmıştır (ör. _quarantine).
-                errors.Add($"Kamera kimliği '{camera.Id}' '_' ile başlayamaz.");
+                errors.Add(idError);
             }
             else if (!seen.Add(camera.Id))
             {
                 errors.Add($"Kamera kimliği '{camera.Id}' birden fazla kez tanımlanmış.");
             }
 
-            if (camera.RtspUrl is null || camera.RtspUrl.Scheme is not ("rtsp" or "rtsps"))
+            if (!CameraValidation.IsValidRtspUrl(camera.RtspUrl))
             {
                 errors.Add($"'{camera.Id}' kamerası için geçerli bir rtsp:// adresi gerekli.");
             }
@@ -40,7 +37,4 @@ public sealed partial class CameraOptions
 
         return errors;
     }
-
-    [GeneratedRegex("^[A-Za-z0-9_-]{1,64}$")]
-    private static partial Regex IdPattern();
 }
