@@ -18,7 +18,9 @@ x-cameras: &cameras
   Cameras__3__RtspUrl: rtsp://mediamtx:8554/cam4
 
 x-backend: &backend
-  ConnectionStrings__Gozcu: Host=postgres;Port=5432;Database=gozcu;Username=gozcu;Password=gozcu
+  # Servis başına en çok 25 bağlantı: 3 servis × 25 = 75 < PostgreSQL max_connections (100). Npgsql'in varsayılanı
+  # (100) ile yük testinde "53300: too many clients" görüldü; bkz. docs/asama-5-ogrenme-notu.md.
+  ConnectionStrings__Gozcu: Host=postgres;Port=5432;Database=gozcu;Username=gozcu;Password=gozcu;Maximum Pool Size=25
   RabbitMq__ConnectionString: amqp://gozcu:gozcu@rabbitmq:5672/
 
 services:
