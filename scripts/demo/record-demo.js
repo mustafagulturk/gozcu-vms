@@ -5,8 +5,8 @@
 //   npm i -D playwright   # veya önceden kurulu Playwright
 //   node scripts/demo/record-demo.js docs/images/demo.gif
 //
-// Ortam değişkenleri: STREAMING_URL, RECORDING_URL, ANALYSIS_URL, GATEWAY_URL (4. aşamanın birleşik paneli varsa
-// onu da gezer), HLS_JS_PATH (cdnjs'e erişimi olmayan ortamlarda hls.js'i yerel dosyadan sunmak için).
+// Ortam değişkenleri: GATEWAY_URL (4. aşamanın birleşik paneli, varsayılan http://localhost:5000; boş verilirse ayrı
+// servis sayfaları STREAMING_URL, RECORDING_URL, ANALYSIS_URL gezilir), HLS_JS_PATH (cdnjs'e erişimi olmayan ortamlarda hls.js'i yerel dosyadan sunmak için).
 const { chromium } = require('playwright');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -18,7 +18,7 @@ const urls = {
   streaming: process.env.STREAMING_URL || 'http://localhost:5080',
   recording: process.env.RECORDING_URL || 'http://localhost:5081',
   analysis: process.env.ANALYSIS_URL || 'http://localhost:5082',
-  gateway: process.env.GATEWAY_URL,
+  gateway: process.env.GATEWAY_URL ?? 'http://localhost:5000',
 };
 const size = { width: 1280, height: 720 };
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -33,32 +33,46 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   }
   const page = await context.newPage();
 
-  // 1) Canlı izleme: dört kamera ızgarası.
-  await page.goto(urls.streaming, { waitUntil: 'networkidle' });
-  await pause(6000);
-
-  // 2) Analiz: son analiz edilen karelerde insan ve araç kutuları.
-  await page.goto(urls.analysis, { waitUntil: 'networkidle' });
-  await pause(6000);
-
-  // 3) Geri oynatma: kamera seç, zaman çizelgesinde geçmiş bir ana tıkla, 2x hızda oynat.
-  await page.goto(urls.recording, { waitUntil: 'networkidle' });
-  await pause(1500);
-  await page.selectOption('#camera', 'cam2').catch(() => {});
-  await page.click('#now').catch(() => {});
-  await pause(1500);
-  const timeline = await page.$('#timeline');
-  if (timeline) {
-    const box = await timeline.boundingBox();
-    await page.mouse.click(box.x + box.width * 0.35, box.y + box.height / 2);
-  }
-  await pause(1000);
-  await page.click('#speeds button:nth-child(2)').catch(() => {});
-  await pause(5000);
-
-  // 4) (Varsa) 4. aşamanın birleşik paneli: olay arama.
   if (urls.gateway) {
-    await page.goto(urls.gateway, { waitUntil: 'networkidle' });
+    // 4. aşamanın birleşik paneli: canlı → olay arama → olaydan kutulu geri oynatma → kameralar.
+    await page.goto(urls.gateway, { waitUntil: 'load' });
+    await pause(7000);
+    await page.goto(`${urls.gateway}/events.html`, { waitUntil: 'load' });
+    await pause(4000);
+    // Küçük resmi yüklenmiş (yani kaydı diske yazılmış) ilk olayı seç; en yeni olayların parçası henüz kapanmamış olabilir.
+    const hasRecording = () => [...document.querySelectorAll('a.event')]
+      .find((a) => { const img = a.querySelector('img'); return img && img.complete && img.naturalWidth > 0; });
+    await page.waitForFunction(hasRecording, null, { timeout: 20000 }).catch(() => {});
+    const card = (await page.evaluateHandle(hasRecording)).asElement();
+    if (card) {
+      await card.hover();
+      await pause(800);
+      await card.click();
+      await page.waitForLoadState('load').catch(() => {});
+      await pause(9000);
+    }
+    await page.goto(`${urls.gateway}/analysis.html`, { waitUntil: 'load' });
+    await pause(5000);
+    await page.goto(`${urls.gateway}/cameras.html`, { waitUntil: 'load' });
+    await pause(2500);
+  } else {
+    // Ayrı servis sayfaları: canlı izleme → analiz → geri oynatma.
+    await page.goto(urls.streaming, { waitUntil: 'load' });
+    await pause(6000);
+    await page.goto(urls.analysis, { waitUntil: 'load' });
+    await pause(6000);
+    await page.goto(urls.recording, { waitUntil: 'load' });
+    await pause(1500);
+    await page.selectOption('#camera', 'cam2').catch(() => {});
+    await page.click('#now').catch(() => {});
+    await pause(1500);
+    const timeline = await page.$('#timeline');
+    if (timeline) {
+      const box = await timeline.boundingBox();
+      await page.mouse.click(box.x + box.width * 0.35, box.y + box.height / 2);
+    }
+    await pause(1000);
+    await page.click('#speeds button:nth-child(2)').catch(() => {});
     await pause(5000);
   }
 
@@ -67,11 +81,11 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   await browser.close();
   const webm = await video.path();
 
-  // ffmpeg: 8 fps, 960 px genişlik, ortak palet. Boyut README için ~5-8 MB civarında kalır.
+  // ffmpeg: ilk 2 sn (sayfa ve oynatıcı yükleniyor) atlanır; 6 fps, 800 px genişlik, ortak palet. GIF ~5 MB civarında kalır.
   const palette = path.join(videoDir, 'palette.png');
-  const filters = 'fps=8,scale=960:-1:flags=lanczos';
-  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', webm, '-vf', `${filters},palettegen=stats_mode=diff`, palette]);
-  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', webm, '-i', palette, '-lavfi',
+  const filters = 'fps=6,scale=800:-1:flags=lanczos';
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', '2', '-i', webm, '-vf', `${filters},palettegen=stats_mode=diff`, palette]);
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', '2', '-i', webm, '-i', palette, '-lavfi',
     `${filters}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`, output]);
   console.log(`GIF hazır: ${output} (${(fs.statSync(output).size / 1024 / 1024).toFixed(1)} MB)`);
 })().catch((error) => {

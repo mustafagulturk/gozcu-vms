@@ -109,7 +109,9 @@ run_step() {
   echo "▶ $n kamera ($SERVICES)"
   prepare "$n"
   "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
-  "${COMPOSE[@]}" up -d --no-build mediamtx postgres rabbitmq $SERVICES >/dev/null 2>&1
+  # RabbitMQ ilk açılışta sağlık denetimini geç geçebilir; bağımlılık hatasında bir kez daha dene.
+  "${COMPOSE[@]}" up -d --no-build mediamtx postgres rabbitmq $SERVICES >/dev/null 2>&1 \
+    || { sleep 20; "${COMPOSE[@]}" up -d --no-build mediamtx postgres rabbitmq $SERVICES >/dev/null; }
 
   has_service streaming && wait_until "akış servisi hazır" "curl -fsS $STREAMING_URL/health/ready"
   has_service recording && wait_until "kayıt servisi hazır" "curl -fsS $RECORDING_URL/health/ready"
@@ -167,7 +169,7 @@ result = {"label": label, "cameras": n, "duration_s": round(elapsed), "cpus": nc
           "host_cpu_pct": host_cpu, "services": services}
 
 if after["streaming"]:
-    result["streaming_online"] = sum(1 for c in after["streaming"] if c.get("state") == "Online")
+    result["streaming_online"] = sum(1 for c in after["streaming"] if (c.get("state") or (c.get("health") or {}).get("state")) == "Online")
 
 if after["recording"]:
     rb = {r["cameraId"]: r for r in before["recording"]["recorders"]}

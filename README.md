@@ -10,8 +10,11 @@ ve olayları web panelde gösteren mikroservis tabanlı bir video yönetim siste
 Gerçek kamera gerektirmez: video dosyaları MediaMTX ile sahte RTSP kameralar olarak yayınlanır; testler ve CI da bu
 sahte kameralarla çalışır.
 
-> **Durum:** 4. aşama tamamlandı (tek web paneli, olay arama, geri oynatmada tespit kutuları, API ile kamera yönetimi).
-> Yol haritası aşağıda.
+> **Durum:** 5 aşamanın hepsi tamamlandı. Son aşamada yük testleri ve ölçümler eklendi: 4 vCPU'luk tek makinede tam sistem
+> (kayıt + canlı izleme + 2 fps nesne tespiti) 8 kamera, yalnızca kayıt ve canlı izleme 64 kamera kaldırıyor. Ayrıntılar
+> [Ölçümler](#ölçümler) bölümünde.
+
+![Demo: canlı izleme, olay arama, olaydan tespit kutulu geri oynatma, analiz ve kamera yönetimi](docs/images/demo.gif)
 
 ![Olay arama: kayıttan alınmış küçük resimlerle insan ve araç olayları](docs/images/asama4-olaylar.png)
 
@@ -33,8 +36,11 @@ ffprobe and quarantined, and finished segments missing from the index are recove
 only component that decodes video: it samples a few frames per second per camera with FFmpeg (letterboxed to the model
 input), runs YOLOX object detection with ONNX Runtime in-process, stores per-frame detections as JSONB metadata in
 PostgreSQL and turns them into debounced person/vehicle events published on RabbitMQ. Back-pressure is handled with a
-drop-oldest channel so inference always works on the freshest frame. A YARP-based gateway serves a single-origin web dashboard (live view, playback with detection boxes drawn over the video and event markers on the timeline, event search with keyset pagination and thumbnails cut from the recordings, camera management). Cameras are managed through a REST API with optimistic concurrency (ETag / If-Match); the database is the source of truth and every service starts and stops its per-camera workers at runtime when the catalog changes (RabbitMQ signal plus periodic refresh). Fake cameras are served by MediaMTX, so the whole system, its integration tests and CI
-run without real hardware. `docker compose up --build` starts everything.
+drop-oldest channel so inference always works on the freshest frame. A YARP-based gateway serves a single-origin web dashboard (live view, playback with detection boxes drawn over the video and event markers on the timeline, event search with keyset pagination and thumbnails cut from the recordings, camera management). Cameras are managed through a REST API with optimistic concurrency (ETag / If-Match); the database is the source of truth and every service starts and stops its per-camera workers at runtime when the catalog changes (RabbitMQ signal plus periodic refresh). Capacity is measured, not guessed: a load-test script scales the number of cameras step by step (on 4 vCPUs the full
+system handles 8 cameras at 2 fps detection, recording and live monitoring alone handle 64), a dependency-free HTTP load
+generator reports latency percentiles in open and closed models (it found a connection-pool exhaustion bug), and
+BenchmarkDotNet micro benchmarks cover the per-frame hot paths. Fake cameras are served by MediaMTX, so the whole system,
+its integration tests and CI run without real hardware. `docker compose up --build` starts everything.
 
 ## Mimari
 
@@ -238,8 +244,88 @@ Docker üzerinde, 4 vCPU, GPU yok:
 | Analiz servisi CPU / bellek | %148 / 389 MiB (kamera başına ffmpeg kod çözme ≈ %8, kalanı çıkarım) |
 | Örnek karede güven (araç / insan / bisiklet) | tiny: 0,92 / 0,65 / 0,65 · s: 0,94 / 0,73 / 0,89 · nano: 0,91 / – / – |
 
-Eşzamanlı kamera sayısı üst sınırı 5. aşamada ölçülecek. (Sahte kamera tarafındaki MediaMTX CPU
-kullanımı test desenlerinin anlık kodlanmasından kaynaklanır; hazırlanmış video dosyasıyla yayın kopyalama modundadır.)
+(Sahte kamera tarafındaki MediaMTX CPU kullanımı test desenlerinin anlık kodlanmasından kaynaklanır; hazırlanmış video
+dosyasıyla yayın kopyalama modundadır.)
+
+### Kapasite: kaç kamera?
+
+5. aşama, `scripts/load-test.sh`: kamera sayısı adım adım artırılır; her adımda temiz veritabanı, 60 sn ısınma, 120 sn ölçüm.
+Kamera K, 4 örnek videodan birini yayınlar (1280×720 25 fps H.264, GOP 2 sn). Parça süresi 10 sn (indeksleyiciye daha çok
+yük). Tek makine, 4 vCPU, GPU yok; sahte kameralar (MediaMTX) da aynı makinede. **Yetişiyor** ölçütü: tüm kameralar
+çevrimiçi ve kayıtta, beklenen parçaların ≥ %90'ı yazıldı, analiz hızı hedefin ≥ %90'ı.
+
+| Senaryo | Kamera | Makine CPU | Akış | Kayıt | Analiz | Analiz hızı (hedef) | Atılan kare | Çıkarım ort. | Yetişiyor |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|:---:|
+| Tam sistem, 2 fps | 4 | %47 | %4 | %4 | %149 | 8,0 (8) | %0 | 72 ms | ✅ |
+| Tam sistem, 2 fps | 8 | %78 | %6 | %6 | %262 | 16,0 (16) | %0 | 76 ms | ✅ |
+| Tam sistem, 2 fps | 12 | %92 | %8 | %8 | %305 | 21,0 (24) | %12 | 96 ms | ❌ |
+| Tam sistem, 2 fps | 16 | %94 | %11 | %10 | %304 | 15,7 (32) | %51 | 128 ms | ❌ |
+| Tam sistem, 1 fps | 16 | %93 | %12 | %10 | %302 | 15,9 (16) | %1 | 104 ms | ✅ |
+| Yalnız canlı + kayıt | 16 | %15 | %11 | %12 | – | – | – | – | ✅ |
+| Yalnız canlı + kayıt | 32 | %35 | %20 | %20 | – | – | – | – | ✅ |
+| Yalnız canlı + kayıt | 64 | %43 | %48 | %46 | – | – | – | – | ✅ |
+
+Servis sütunları bir çekirdeğe göre yüzdedir (%100 = 1 çekirdek); makine CPU'su 4 çekirdeğin toplamına göre.
+
+- **Kayıt doğrusal ve ucuz:** kamera başına ≈ %0,7 CPU (kayıt) + %0,7 (canlı izleme durumu). 64 kamerada bile 768/784 parça
+  yazıldı, kayıt gecikmesi (parça bitişi → veritabanında aranabilir) her adımda ort. ~0,5 sn, en çok ~1 sn: yükle artmıyor.
+- **Sınırı analiz belirliyor:** kamera başına ≈ %8 CPU yalnızca kod çözme (25 karenin hepsi çözülür, 2'si seçilir) + çıkarım.
+  Fps'i yarıya indirmek 16 kamerayı sığdırdı ama analiz CPU'su değişmedi (%304 → %302): kod çözme fps'ten bağımsız. Sonraki
+  adım donanım kod çözücü, kameranın düşük çözünürlüklü alt akışı veya GPU.
+- **Aşırı yükte zarif bozulma:** 16 kamera 2 fps'te en eski kareler atıldı (DropOldest), her kamera yine ~1 fps analiz edildi,
+  bellek sınırlı kaldı, kayıt etkilenmedi.
+
+Ham sonuçlar: [`docs/olcumler/sistem-yuk-testi.jsonl`](docs/olcumler/sistem-yuk-testi.jsonl).
+
+### API yük testi
+
+`tools/Gozcu.LoadTest` (bağımlılıksız; kapalı ve açık model, log-doğrusal histogram). Sistem 4 kamerayı kaydedip analiz
+ederken, aynı makineden; karma senaryo operatör panelini taklit eder (kamera durumu, zaman çizelgesi, 1 MiB parça
+okuma, konum bulma, analiz durumu, tespitler, olay arama). Açık model: istekler sabit hızla gelir, gecikme planlanan
+gönderim anından ölçülür (koordineli ihmal yok).
+
+| Hedef istek/sn | Gerçekleşen | Hata | p50 | p95 | p99 | Maks |
+|---:|---:|---:|---:|---:|---:|---:|
+| 200 | 200 | 0 | 6 ms | 14 ms | 22 ms | 123 ms |
+| 400 | 400 | 0 | 7 ms | 25 ms | 55 ms | 198 ms |
+| 600 | 600 | 0 | 9 ms | 46 ms | 97 ms | 236 ms |
+| 800 | 731 (doygun) | 0 | 21 ms | 199 ms | 356 ms | 862 ms |
+
+Yük testi gerçek bir hata buldu: 800 istek/sn'de PostgreSQL `53300: too many clients already`. Npgsql'in varsayılan
+havuz sınırı (servis başına 100) üç servisle PostgreSQL'in `max_connections` (100) değerini aşabiliyordu. Bağlantı
+dizesine `Maximum Pool Size=25` eklendi; tekrarında hata yok, en yüksek eşzamanlı bağlantı 70. Senaryo başına sonuçlar:
+[`docs/olcumler/api-yuk-testi.md`](docs/olcumler/api-yuk-testi.md).
+
+### Mikro ölçümler
+
+`benchmarks/Gozcu.Benchmarks` (BenchmarkDotNet, `--job short`, tümü [`docs/olcumler/mikro-olcumler.md`](docs/olcumler/mikro-olcumler.md)):
+
+| Ölçüm | Süre | Bellek ayırma |
+|---|---:|---:|
+| YOLOX-Tiny çıkarımı, 416×416, 1 / 2 / 4 iş parçacığı | 77 / 49 / 31 ms | ~3 KB |
+| BGR24 → CHW float tensör (416×416) | 360 µs | 0 B |
+| YOLOX çıktısı kod çözme (3549×85, 30 aday) | 14 µs | 1,5 KB |
+| NMS, 50 / 200 / 1000 kutu | 3 / 23 / 338 µs | 1–18 KB |
+| ffmpeg borusundan ham kare okuma | 55 µs/kare | 2 B |
+| Zaman çizelgesi, 1440 parçalık gün | 223 µs | 244 KB |
+| Saklama planı, 100 bin parça | 78 ms | 3,4 MB |
+
+Kare başına çalışan yolda (tensör, kod çözme, kare okuma) bellek ayırma sıfıra yakın; kare başına süreyi model belirliyor.
+Tek karede 4 iş parçacığı yalnızca 2,5 kat hızlı; çok kamerada bu yüzden "kamera başına az iş parçacığı + sınırlı
+eşzamanlı çıkarım" kullanılıyor.
+
+### Ölçümleri kendin tekrarla
+
+```bash
+./scripts/download-sample-videos.sh && docker compose build
+./scripts/load-test.sh                                                    # 4 8 12 16 kamera, tam sistem
+CAMERAS="16 32 64" SERVICES="streaming recording" ./scripts/load-test.sh  # yalnız canlı izleme + kayıt
+docker compose up -d   # birkaç dakika kayıt birikmesini bekle
+dotnet run -c Release --project tools/Gozcu.LoadTest -- --scenario all --duration 20s
+dotnet run -c Release --project tools/Gozcu.LoadTest -- --scenario mixed --rate 400 --concurrency 64
+dotnet run -c Release --project benchmarks/Gozcu.Benchmarks -- --filter '*'
+node scripts/demo/record-demo.js docs/images/demo.gif                    # demo GIF (Playwright + ffmpeg)
+```
 
 ## Yol haritası
 
@@ -247,7 +333,7 @@ kullanımı test desenlerinin anlık kodlanmasından kaynaklanır; hazırlanmı�
 - [x] **2. Çoklu kamera ve geri oynatma** – 4 sahte kamera, saate göre geri oynatma ve zaman çizelgesi, yeniden kodlamasız klip dışa aktarma, açılışta disk/veritabanı uzlaştırması
 - [x] **3. Nesne tespiti** – saniyede 2 kare ile YOLOX (ONNX Runtime), insan/araç tespiti, kare kare metaveri (JSONB), olaylar (PostgreSQL + RabbitMQ), analiz sayfası
 - [x] **4. Olay arama ve web panel** – YARP ağ geçidiyle tek panel, API ile kamera yönetimi (ETag/If-Match, çalışırken kamera ekleme/çıkarma), keyset sayfalamalı olay arama, geri oynatmada tespit kutuları ve olay işaretli zaman çizelgesi
-- [ ] **5. Ölçümler, testler ve dokümantasyon** – yük testleri, ölçüm tablosu, demo GIF
+- [x] **5. Ölçümler, testler ve dokümantasyon** – kamera sayısını artıran sistem yük testi, HTTP API yük üreticisi, BenchmarkDotNet mikro ölçümleri, ölçüm tabloları, demo GIF, mülakat hazırlık dokümanı
 
 ## Öğrenme notları
 
@@ -256,6 +342,8 @@ Her aşamanın arkasındaki kavramlar, tasarım kararları ve mülakat soruları
 - [Aşama 2: çoklu kamera ve geri oynatma](docs/asama-2-ogrenme-notu.md)
 - [Aşama 3: nesne tespiti](docs/asama-3-ogrenme-notu.md)
 - [Aşama 4: olay arama ve web panel](docs/asama-4-ogrenme-notu.md)
+- [Aşama 5: ölçümler, yük testleri ve dokümantasyon](docs/asama-5-ogrenme-notu.md)
+- [Mülakat hazırlık dokümanı: tüm aşamalar tek yerde](docs/mulakat-hazirlik.md)
 
 ## Lisans
 
