@@ -169,6 +169,17 @@ public class ScenarioTests
     }
 
     [Fact]
+    public void Event_search_queries_people_over_last_day()
+    {
+        var search = RequestFactory.EventSearch("s", Input());
+
+        Assert.Equal(ServiceTarget.Analysis, search.Target);
+        Assert.Equal(
+            "/api/analysis/events/search?category=Person&from=2026-10-31T12%3A00%3A00Z&to=2026-11-01T12%3A00%3A00Z&minConfidence=0.5&limit=50",
+            search.PathAndQuery);
+    }
+
+    [Fact]
     public void Export_requests_thirty_seconds_inside_a_segment()
     {
         for (var seed = 0; seed < 20; seed++)

@@ -61,6 +61,7 @@ Debug derlemesi yük üreticisini yavaşlatır.
 | `segment-media` | `GET /api/playback/segments/{id}/media` + `Range` | Rastgele konumdan 1 MiB (oynatıcının atlaması gibi) |
 | `detections` | `GET /api/analysis/detections?cameraId=&from=&to=&limit=100` | Son bir saat, rastgele kamera |
 | `events` | `GET /api/analysis/events?from=&to=&limit=100` | Son bir saat, tüm kameralar |
+| `event-search` | `GET /api/analysis/events/search?category=Person&from=&to=&minConfidence=0.5&limit=50` | Olay arama sayfasının sorgusu, son 24 saat |
 | `mixed` | yukarıdakilerin ağırlıklı karışımı | Operatör paneli yükü (aşağıda) |
 | `export` | `GET /api/playback/{kamera}/export?from=&to=` | 30 sn klip; ffmpeg çalıştırır, **ağırdır**, `all`'a dahil değildir |
 
@@ -70,7 +71,7 @@ test başlamadan önce her kameranın son 24 saatlik zaman çizelgesi okunur ve 
 nedeni yazılarak atlanır.
 
 `mixed` ağırlıkları (toplam 100): `cameras` 20, `timeline-1h` 20, `segment-media` 20, `locate` 10,
-`analysis-status` 10, `recording-status` 5, `timeline-24h` 5, `detections` 5, `events` 5. Karma
+`analysis-status` 10, `recording-status` 5, `timeline-24h` 5, `detections` 5, `event-search` 5. Karma
 koşuda her alt senaryo ayrı satırda, en altta `TOPLAM` satırıyla raporlanır.
 
 ## Yük modelleri

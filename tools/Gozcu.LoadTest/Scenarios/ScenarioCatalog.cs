@@ -64,6 +64,7 @@ internal static class ScenarioCatalog
     public const string SegmentMediaName = "segment-media";
     public const string DetectionsName = "detections";
     public const string EventsName = "events";
+    public const string EventSearchName = "event-search";
     public const string MixedName = "mixed";
     public const string ExportName = "export";
 
@@ -81,7 +82,7 @@ internal static class ScenarioCatalog
         (RecordingStatusName, 5),
         (Timeline24hName, 5),
         (DetectionsName, 5),
-        (EventsName, 5),
+        (EventSearchName, 5),
     ];
 
     public static readonly IReadOnlyList<Scenario> All = Build();
@@ -116,6 +117,8 @@ internal static class ScenarioCatalog
                 i => RequestFactory.Detections(DetectionsName, i)),
             Single(EventsName, "Son bir saatin olayları — GET /api/analysis/events?from&to&limit", DataNeeds.None,
                 i => RequestFactory.Events(EventsName, i)),
+            Single(EventSearchName, "Olay arama, son 24 saat, insan, en az 0,5 güven — GET /api/analysis/events/search", DataNeeds.None,
+                i => RequestFactory.EventSearch(EventSearchName, i)),
         };
 
         var byName = singles.ToDictionary(s => s.Name, StringComparer.Ordinal);

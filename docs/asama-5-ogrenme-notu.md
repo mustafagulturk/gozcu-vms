@@ -144,7 +144,7 @@ betikle üretmek, arayüz değişince "yeniden çek" işini tek komuta indirir.
    Log-doğrusal histogram: sabit bellek, kilitsiz kayıt, ~%1,6 göreli hata. Milyonlarca örneği saklayıp sıralamak gerekmez.
 8. **Mikro ölçümde neye bakıyorsun?**
    Ortalama süre, hata payı ve işlem başına ayrılan bellek. Kare başına çalışan kodda ayırmanın sıfıra yakın olması GC
-   duraklamalarını önler. Örnek: tensör doldurma 736 B (yalnızca ölçüm çerçevesi), kutu normalizasyonu 0 B.
+   duraklamalarını önler. Örnek: 416×416 tensör doldurma ve kutu normalizasyonu 0 B, ham kare okuma 2 B (kare başına).
 9. **Neden ONNX çıkarımını 1/2/4 iş parçacığıyla ölçtün?**
    Tek kare için çok iş parçacığı gecikmeyi düşürür ama çok kamerada toplam verimi düşürebilir: iş parçacıkları
    birbirinin ve kod çözmenin önüne geçer. Bu yüzden servis "kamera başına az iş parçacığı + sınırlı eşzamanlı çıkarım"

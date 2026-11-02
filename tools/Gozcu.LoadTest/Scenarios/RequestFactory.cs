@@ -94,6 +94,18 @@ internal static class RequestFactory
             $"/api/analysis/events?from={Time(to.AddHours(-1))}&to={Time(to)}&limit=100");
     }
 
+    /// <summary>
+    /// /api/analysis/events/search?category=Person&amp;from=&amp;to=&amp;minConfidence=0.5&amp;limit=50 — olay arama sayfasının
+    /// varsayılan sorgusu: tüm kameralar, son 24 saat (4. aşama).
+    /// </summary>
+    public static RequestSpec EventSearch(string label, ScenarioInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var to = Truncate(input.Now);
+        return new(label, ServiceTarget.Analysis,
+            $"/api/analysis/events/search?category=Person&from={Time(to.AddHours(-24))}&to={Time(to)}&minConfidence=0.5&limit=50");
+    }
+
     /// <summary>/api/playback/{cameraId}/export?from=&amp;to= — bilinen bir parçanın başlangıcından 30 sn'lik klip.</summary>
     public static RequestSpec Export(string label, ScenarioInput input)
     {
